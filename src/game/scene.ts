@@ -10,6 +10,7 @@
 import { Starfield } from "../video/starfield";
 import { drawSprite, SCREEN_H, SCREEN_W, type VideoAssets } from "../video/render";
 import { Squadron } from "./enemies";
+import { Base, type EnemyBullet } from "./base";
 
 export interface Controls {
   up: boolean;
@@ -61,12 +62,23 @@ export class GameScene {
   lives = 3;
   private invuln = 0;
 
+  // enemy bases ("spy ships") and their bullets
+  bases: Base[] = [];
+  enemyBullets: EnemyBullet[] = [];
+  private baseTimer = 60;
+
   constructor(private assets: VideoAssets) {
     this.starfield.enable(true);
     this.starfield.setActiveSets(0, 2);
     this.squadron = new Squadron({
       screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5,
     });
+  }
+
+  private spawnBase(): void {
+    const px = 40 + Math.random() * (224 - 80);
+    const py = 30 + Math.random() * (SCREEN_H - 60);
+    this.bases.push(new Base(px, py));
   }
 
   private headings(): Heading[] {
@@ -162,23 +174,65 @@ export class GameScene {
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
 
-    // enemy vs player
-    if (this.invuln > 0) this.invuln--;
-    else {
-      for (const e of this.squadron.enemies) {
-        if (!e.alive) continue;
-        if (
-          this.player.x < e.x + 14 && this.player.x + 14 > e.x &&
-          this.player.y < e.y + 14 && this.player.y + 14 > e.y
-        ) {
-          this.lives = Math.max(0, this.lives - 1);
-          this.invuln = 120;
-          this.player.x = (SCREEN_W - 16) / 2;
-          this.player.y = (SCREEN_H - 16) / 2;
-          break;
+    // bases: spawn (keep 1-2 on the field), update, fire
+    this.bases = this.bases.filter((b) => !b.destroyed);
+    if (this.bases.length < 2) {
+      if (this.baseTimer > 0) this.baseTimer--;
+      else {
+        this.spawnBase();
+        this.baseTimer = 240;
+      }
+    }
+    const pcx = this.player.x + 8;
+    const pcy = this.player.y + 8;
+    for (const b of this.bases) b.update(pcx, pcy, this.enemyBullets);
+
+    // player bullets vs bases
+    for (const b of this.bases) {
+      for (const bul of this.bullets) {
+        if (bul.life <= 0) continue;
+        const s = b.hit(bul.x, bul.y);
+        if (s > 0) {
+          bul.life = 0;
+          this.score += s;
         }
       }
     }
+    this.bullets = this.bullets.filter((bl) => bl.life > 0);
+
+    // advance enemy bullets
+    for (const eb of this.enemyBullets) {
+      eb.x += eb.dx;
+      eb.y += eb.dy;
+      eb.life--;
+    }
+    this.enemyBullets = this.enemyBullets.filter(
+      (eb) => eb.life > 0 && eb.x >= 0 && eb.x < SCREEN_W && eb.y >= 0 && eb.y < SCREEN_H,
+    );
+
+    // hazards vs player (enemies, enemy bullets, base bodies)
+    if (this.invuln > 0) this.invuln--;
+    else if (this.playerHit(pcx, pcy)) {
+      this.lives = Math.max(0, this.lives - 1);
+      this.invuln = 120;
+      this.player.x = (SCREEN_W - 16) / 2;
+      this.player.y = (SCREEN_H - 16) / 2;
+      this.enemyBullets = [];
+    }
+  }
+
+  private playerHit(pcx: number, pcy: number): boolean {
+    for (const e of this.squadron.enemies) {
+      if (e.alive && this.player.x < e.x + 14 && this.player.x + 14 > e.x &&
+          this.player.y < e.y + 14 && this.player.y + 14 > e.y) return true;
+    }
+    for (const eb of this.enemyBullets) {
+      if (Math.abs(eb.x - pcx) < 7 && Math.abs(eb.y - pcy) < 7) return true;
+    }
+    for (const b of this.bases) {
+      if (b.overlaps(pcx, pcy, 7)) return true;
+    }
+    return false;
   }
 
   render(): Uint8Array {
@@ -197,6 +251,25 @@ export class GameScene {
             rgb[o] = br;
             rgb[o + 1] = bg;
             rgb[o + 2] = bb;
+          }
+        }
+      }
+    }
+
+    // bases (geometric hexagonal spy ships)
+    for (const b of this.bases) b.render(rgb, SCREEN_W, SCREEN_H);
+
+    // enemy bullets (orange dots)
+    for (const eb of this.enemyBullets) {
+      for (let dy = 0; dy < 2; dy++) {
+        for (let dx = 0; dx < 2; dx++) {
+          const px = Math.round(eb.x) + dx;
+          const py = Math.round(eb.y) + dy;
+          if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
+            const o = (py * SCREEN_W + px) * 3;
+            rgb[o] = 255;
+            rgb[o + 1] = 170;
+            rgb[o + 2] = 40;
           }
         }
       }
