@@ -61,3 +61,48 @@
   （結果は docs/rom-acquisition.md に記録予定）。用意できるまでの自動テストは合成ROM
   （自作ダミープログラム）で代替する方針
 - フェーズ1: Z80コア（zexall検証）、メモリマップ、3CPU調停、LS259、ウォッチドッグ、IRQ/NMI
+
+---
+
+## 2026-08-12 — フェーズ1: Z80コア＋マシン骨格
+
+### ROM入手ルート調査（ユーザー依頼分）完了
+
+- 結果を `docs/rom-acquisition.md` に記録。要旨: MAME互換ROMの合法配布ルートは存在しない。
+  現実解は (1)実基板購入＋自己ダンプ（私的複製の範囲、ただしカスタムMCU内蔵ROMは個人では
+  吸い出し不可）、(2)Arcade Archives購入（プレイのみ）。公式製品からの抽出はDRM回避
+  （著作権法30条1項2号）に該当する可能性が高く推奨できない。
+- 含意: 開発中の自動テストは合成ROM（自作ダミープログラム）で行う設計にした。
+
+### Z80コア（src/core/z80.ts）
+
+- **自作を選択**（計画では「既存MITライブラリ or 自作」だった。理由: フェーズ5-6の
+  トレース比較にフックが必要なこと、依存の品質検証コストより自作＋zex検証が確実なこと）
+- 実装範囲: 全公式命令＋非公式命令（SLL、IXH/IXL/IYH/IYL、DDCBのレジスタコピー、
+  ED無効=2NOP）、非公式フラグ（X/Y、MEMPTR/WZ経由の BIT n,(HL)）、Rレジスタ、
+  IM0/1/2、NMI、EI遅延、HALT。命令粒度のサイクルカウント
+- 検証: 単体テスト12件＋zexdoc/zexall（Frank Cringleの命令エクササイザ、実チップ由来
+  CRC照合）。zexバイナリはGPLのためコミットせず `tools/fetch-testroms.sh` で取得
+  （anotherlin/z80emu ミラー、`npm run test:zex`）
+- **バグ修正1件**: ADDのオーバーフローフラグ計算が `~(v^r)&(a^r)` になっていた
+  （正: `~(a^v)&(a^r)`）。単体テストが検出。
+  もう1件のテスト失敗はテスト側の誤り（実Z80はリセット後A=0xffであることを失念）
+
+### マシン骨格（src/machine/bosco.ts）
+
+- メモリマップ全実装（bosco_map準拠）: ROM/DSW/WSGレジスタ/misclatch/watchdog/
+  06xx窓(スタブ)/共有RAM/videoram/radarattr/scroll/starcontrol/starclr/videolatch
+- 3CPU調停: スキャンライン単位（192サイクル/ライン）で命令粒度ラウンドロビン
+  （MAMEの6kHz量子より細かい）
+- LS259 misclatch: Q0/Q1=IRQマスク&クリア、Q2=NMI許可（反転）、Q3=sub/sub2リセット
+  （立ち上がりで解放）。videolatch: Q0=画面反転（反転）、Q4/Q5/Q7はフェーズ2/3へ
+- vblank IRQ（ライン240、レベルトリガ）、sub2へのNMI（ライン64/192、
+  cpu3_interrupt_callback準拠）、ウォッチドッグ（8 vblankで全体リセット）
+- DSW読み（1bit×8アドレス分散、bit0=DSWB/bit1=DSWA）
+- 統合テスト7件（合成ROM使用）: サブCPUリセットゲート、共有RAM相互可視性、
+  vblank IRQ配送/ack、ウォッチドッグ発火、DSW、ROM書き込み無視、ラッチ類
+
+### テスト状況
+
+- 通常スイート: 32件パス（+zex 2件は環境変数ゲート）
+- zexdoc/zexall: バックグラウンドで実行中（数十分規模）。結果はこの下に追記する

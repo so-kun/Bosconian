@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:zex": "sh tools/fetch-testroms.sh && ZEX=all vitest run tests/zex.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
