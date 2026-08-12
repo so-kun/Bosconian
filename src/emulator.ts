@@ -5,15 +5,17 @@
 
 import { BoscoMachine } from "./machine/bosco";
 import type { LoadedRomSet } from "./rom/loader";
-import { CHAR_LAYOUT, decodeGfx } from "./video/gfx";
+import { CHAR_LAYOUT, SPRITE_LAYOUT, decodeGfx } from "./video/gfx";
 import { buildPalette } from "./video/palette";
 import { renderFrame, SCREEN_H, SCREEN_W, type VideoAssets } from "./video/render";
 
 export function buildAssets(rs: LoadedRomSet): VideoAssets {
   const gfx1 = rs.regions.get("gfx1")!;
+  const gfx2 = rs.regions.get("gfx2")!;
   const proms = rs.regions.get("proms")!;
   return {
     chars: decodeGfx(gfx1.subarray(0, 0x1000), CHAR_LAYOUT),
+    sprites: decodeGfx(gfx2.subarray(0, 0x1000), SPRITE_LAYOUT),
     palette: buildPalette(proms),
   };
 }

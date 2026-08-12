@@ -1,7 +1,8 @@
 // Entry point. Phase 0: ROM loading + verification UI.
 // Later phases attach the machine (3x Z80 + video + sound) once ROMs verify.
 
-import { Emulator } from "./emulator";
+import { Emulator, buildAssets } from "./emulator";
+import { GameRunner } from "./game/runner";
 import { loadRomSet, type LoadedRomSet } from "./rom/loader";
 import { renderRomReport } from "./ui/romPanel";
 
@@ -10,8 +11,44 @@ const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const reportEl = document.getElementById("rom-report")!;
 const screenContainer = document.getElementById("screen-container")!;
 const canvas = document.getElementById("screen") as HTMLCanvasElement;
+const modeSelect = document.getElementById("mode-select")!;
+const modeEmuBtn = document.getElementById("mode-emu")!;
+const modeGameBtn = document.getElementById("mode-game")!;
+const controlsHint = document.getElementById("controls-hint")!;
 
 let emulator: Emulator | null = null;
+let game: GameRunner | null = null;
+let loadedRom: LoadedRomSet | null = null;
+
+function stopAll(): void {
+  emulator?.stop();
+  game?.stop();
+  emulator = null;
+  game = null;
+}
+
+function startEmulator(): void {
+  if (!loadedRom) return;
+  stopAll();
+  screenContainer.hidden = false;
+  controlsHint.hidden = false;
+  emulator = new Emulator(canvas, loadedRom);
+  emulator.attachKeyboard();
+  emulator.start();
+}
+
+function startGame(): void {
+  if (!loadedRom) return;
+  stopAll();
+  screenContainer.hidden = false;
+  controlsHint.hidden = false;
+  game = new GameRunner(canvas, buildAssets(loadedRom));
+  game.attachKeyboard();
+  game.start();
+}
+
+modeEmuBtn.addEventListener("click", startEmulator);
+modeGameBtn.addEventListener("click", startGame);
 
 async function handleFiles(files: File[]): Promise<void> {
   const inputs = await Promise.all(
@@ -24,13 +61,11 @@ async function handleFiles(files: File[]): Promise<void> {
 
 function onRomsLoaded(result: LoadedRomSet): void {
   if (!result.complete) return;
-  // Boot the real ROM and render the power-on sequence to the canvas.
-  emulator?.stop();
-  screenContainer.hidden = false;
+  loadedRom = result;
   dropZone.hidden = true;
-  emulator = new Emulator(canvas, result);
-  emulator.attachKeyboard();
-  emulator.start();
+  modeSelect.hidden = false;
+  // default to the native reimplementation (playable immediately)
+  startGame();
 }
 
 dropZone.addEventListener("click", () => fileInput.click());

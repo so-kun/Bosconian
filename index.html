@@ -50,6 +50,18 @@
       transition: border-color 0.15s;
     }
     #drop-zone.dragover { border-color: var(--accent); color: var(--text); }
+    #mode-select { display: flex; gap: 0.75rem; margin-bottom: 1rem; }
+    #mode-select button {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    #mode-select button:hover { border-color: var(--accent); }
     #rom-report {
       width: 864px;
       max-width: 100%;
@@ -75,9 +87,16 @@
 </head>
 <body>
   <h1>BOSCONIAN</h1>
+  <div id="mode-select" hidden>
+    <button id="mode-emu" type="button">起動シーケンス（実ROMエミュレータ）</button>
+    <button id="mode-game" type="button">プレイ（再実装）</button>
+  </div>
   <div id="screen-container" hidden>
     <canvas id="screen" width="288" height="224"></canvas>
   </div>
+  <p id="controls-hint" class="notice" hidden>
+    操作: 矢印 / WASD = 移動、Space = ショット、5 = コイン、1 = スタート（エミュレータ時）
+  </p>
   <div id="drop-zone">
     ROMセット（bosco.zip 等）をここにドラッグ＆ドロップ<br />
     またはクリックしてファイルを選択<br /><br />

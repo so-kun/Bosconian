@@ -245,6 +245,30 @@ ROMが揃ったので、静的な逆アセンブル推測より「自作エミ�
 
 ---
 
+## 2026-08-12 — route(c) 着手: 05XX星空＋自機（ネイティブ再実装）
+
+ユーザー承認（推奨案）でルート(c)に重心を移動。詳細は docs/game-reimplementation.md。
+
+- `src/video/starfield.ts`: Namco 05XX スターフィールドを MAME解析済みLFSR
+  アルゴリズムから再実装（16bitフィボナッチLFSR、ヒット検出mask 0xfa14/val 0x7800、
+  2バンク、スクロール、bosco設定 Yオフセット16/X上限224）
+- `src/video/render.ts`: drawSprite（16×16スプライト描画）追加、VideoAssetsにsprites
+- `src/emulator.ts`: buildAssetsでgfx2（スプライト）もデコード
+- `src/game/scene.ts`: ネイティブゲーム。自機8方向移動・ヘディング・ショット・
+  星空スクロール連動（自機=gfx2 index0系、色1=白）
+- `src/game/runner.ts`: rAFループ＋キーボード→canvas描画
+- `index.html`/`main.ts`: モード選択UI（起動エミュレータ / プレイ再実装）
+- 検証: ヘッドレスで星空＋自機＋弾を描画確認（authentic な多色星空、右レーダー帯は空）
+- テスト game.test.ts 追加（星空の決定性/無効時/x<224、シーンの入力→方向/弾/クランプ）
+  全67件パス、typecheck/build OK
+
+### 次段（route c ロードマップ）
+
+自機精緻化 → 敵編隊 → 基地/砲台 → 機雷 → アラート遷移 → スコア → レーダー →
+サウンド → アトラクト。各挙動は逆アセンブル解析＋エミュレータtrace参照で詰める。
+
+---
+
 ## 2026-08-12 — フェーズ3: カスタムチップ（06XX/51XX）HLE
 
 ### 実装（詳細は docs/disassembly/02-custom-chips.md）

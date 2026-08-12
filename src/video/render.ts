@@ -16,7 +16,49 @@ const BG_COLS = 28; // visible playfield width in tiles (28*8 = 224px)
 
 export interface VideoAssets {
   chars: Uint8Array[]; // decoded 8x8 char tiles (gfx1)
+  sprites?: Uint8Array[]; // decoded 16x16 sprite tiles (gfx2)
   palette: Palette;
+}
+
+/**
+ * Draw a 16x16 sprite (gfx2) into an RGB framebuffer using the sprite pen
+ * table. Pixel value 0 (and any pen mapping to indirect 0x0f) is transparent.
+ */
+export function drawSprite(
+  rgb: Uint8Array,
+  width: number,
+  height: number,
+  sprites: Uint8Array[],
+  palette: Palette,
+  code: number,
+  color: number,
+  flipx: boolean,
+  flipy: boolean,
+  sx: number,
+  sy: number,
+): void {
+  const tile = sprites[code % sprites.length];
+  if (!tile) return;
+  const base = color * 4;
+  for (let y = 0; y < 16; y++) {
+    const py = sy + y;
+    if (py < 0 || py >= height) continue;
+    const ty = flipy ? 15 - y : y;
+    for (let x = 0; x < 16; x++) {
+      const px = sx + x;
+      if (px < 0 || px >= width) continue;
+      const tx = flipx ? 15 - x : x;
+      const pix = tile[ty * 16 + tx]!;
+      if (pix === 0) continue; // transparent
+      const indirect = palette.spritePen[base + pix]!;
+      if (indirect === 0x0f) continue; // transparent pen
+      const [r, g, b] = palette.colors[indirect] ?? [0, 0, 0];
+      const o = (py * width + px) * 3;
+      rgb[o] = r;
+      rgb[o + 1] = g;
+      rgb[o + 2] = b;
+    }
+  }
 }
 
 function putTile(
