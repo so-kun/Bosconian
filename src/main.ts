@@ -1,12 +1,17 @@
 // Entry point. Phase 0: ROM loading + verification UI.
 // Later phases attach the machine (3x Z80 + video + sound) once ROMs verify.
 
+import { Emulator } from "./emulator";
 import { loadRomSet, type LoadedRomSet } from "./rom/loader";
 import { renderRomReport } from "./ui/romPanel";
 
 const dropZone = document.getElementById("drop-zone")!;
 const fileInput = document.getElementById("file-input") as HTMLInputElement;
 const reportEl = document.getElementById("rom-report")!;
+const screenContainer = document.getElementById("screen-container")!;
+const canvas = document.getElementById("screen") as HTMLCanvasElement;
+
+let emulator: Emulator | null = null;
 
 async function handleFiles(files: File[]): Promise<void> {
   const inputs = await Promise.all(
@@ -18,10 +23,13 @@ async function handleFiles(files: File[]): Promise<void> {
 }
 
 function onRomsLoaded(result: LoadedRomSet): void {
-  // Phase 1+ hook: boot the machine when the set is complete.
-  if (result.complete) {
-    console.log(`ROM set "${result.setName}" verified; machine boot lands in phase 1.`);
-  }
+  if (!result.complete) return;
+  // Boot the real ROM and render the power-on sequence to the canvas.
+  emulator?.stop();
+  screenContainer.hidden = false;
+  dropZone.hidden = true;
+  emulator = new Emulator(canvas, result);
+  emulator.start();
 }
 
 dropZone.addEventListener("click", () => fileInput.click());
