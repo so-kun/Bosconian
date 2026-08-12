@@ -17,7 +17,37 @@ const BG_COLS = 28; // visible playfield width in tiles (28*8 = 224px)
 export interface VideoAssets {
   chars: Uint8Array[]; // decoded 8x8 char tiles (gfx1)
   sprites?: Uint8Array[]; // decoded 16x16 sprite tiles (gfx2)
+  dots?: Uint8Array[]; // decoded 4x4 dot/bullet tiles (gfx3)
   palette: Palette;
+}
+
+/** Draw a 4x4 dot (gfx3) at (sx,sy) with an explicit RGB colour. Non-zero
+ *  pixel values are drawn; value 0 is transparent. */
+export function drawDot(
+  rgb: Uint8Array,
+  width: number,
+  height: number,
+  dots: Uint8Array[],
+  code: number,
+  color: [number, number, number],
+  sx: number,
+  sy: number,
+): void {
+  const tile = dots[code % dots.length];
+  if (!tile) return;
+  for (let y = 0; y < 4; y++) {
+    const py = sy + y;
+    if (py < 0 || py >= height) continue;
+    for (let x = 0; x < 4; x++) {
+      const px = sx + x;
+      if (px < 0 || px >= width) continue;
+      if (tile[y * 4 + x] === 0) continue;
+      const o = (py * width + px) * 3;
+      rgb[o] = color[0];
+      rgb[o + 1] = color[1];
+      rgb[o + 2] = color[2];
+    }
+  }
 }
 
 /**

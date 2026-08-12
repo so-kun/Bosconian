@@ -8,7 +8,7 @@
 // enemies / bases / formations build on.
 
 import { Starfield } from "../video/starfield";
-import { drawSprite, SCREEN_H, SCREEN_W, type VideoAssets } from "../video/render";
+import { drawDot, drawSprite, SCREEN_H, SCREEN_W, type VideoAssets } from "../video/render";
 import { Squadron } from "./enemies";
 import { Base, type EnemyBullet } from "./base";
 
@@ -239,39 +239,22 @@ export class GameScene {
     const rgb = new Uint8Array(SCREEN_W * SCREEN_H * 3); // black background
     this.starfield.render(rgb, SCREEN_W, this.assets.palette);
 
-    // bullets (small bright dots)
-    const [br, bg, bb] = this.assets.palette.colors[31] ?? [255, 255, 255];
+    // player bullets: real gfx3 dot shape, bullet colours (palette 28-31)
+    const pcol = this.assets.palette.colors[31] ?? [255, 255, 255];
     for (const b of this.bullets) {
-      for (let dy = 0; dy < 2; dy++) {
-        for (let dx = 0; dx < 2; dx++) {
-          const px = Math.round(b.x) + dx;
-          const py = Math.round(b.y) + dy;
-          if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
-            const o = (py * SCREEN_W + px) * 3;
-            rgb[o] = br;
-            rgb[o + 1] = bg;
-            rgb[o + 2] = bb;
-          }
-        }
+      if (this.assets.dots) {
+        drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 0, pcol, Math.round(b.x) - 2, Math.round(b.y) - 2);
       }
     }
 
     // bases (geometric hexagonal spy ships)
     for (const b of this.bases) b.render(rgb, SCREEN_W, SCREEN_H);
 
-    // enemy bullets (orange dots)
+    // enemy bullets: real gfx3 dot shape, a distinct bullet colour
+    const ecol = this.assets.palette.colors[29] ?? [255, 170, 40];
     for (const eb of this.enemyBullets) {
-      for (let dy = 0; dy < 2; dy++) {
-        for (let dx = 0; dx < 2; dx++) {
-          const px = Math.round(eb.x) + dx;
-          const py = Math.round(eb.y) + dy;
-          if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
-            const o = (py * SCREEN_W + px) * 3;
-            rgb[o] = 255;
-            rgb[o + 1] = 170;
-            rgb[o + 2] = 40;
-          }
-        }
+      if (this.assets.dots) {
+        drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 2, ecol, Math.round(eb.x) - 2, Math.round(eb.y) - 2);
       }
     }
 
