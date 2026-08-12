@@ -13,8 +13,11 @@ import { Squadron } from "./enemies";
 import { Base, type EnemyBullet } from "./base";
 import { AlertSystem } from "./alert";
 import { Mine, detonateChain } from "./mine";
+import { WORLD_W, WORLD_H, wrap, wrapDelta, nearestImage, wrapDist } from "./world";
 
 const PLAYFIELD_W = 224; // left playfield width; right strip is the radar
+const VIEW_CX = PLAYFIELD_W / 2; // ship is pinned to the centre of the play window
+const VIEW_CY = SCREEN_H / 2;
 
 export interface Controls {
   up: boolean;
@@ -57,7 +60,10 @@ interface Heading {
 
 export class GameScene {
   starfield = new Starfield();
-  player = { x: (SCREEN_W - 16) / 2, y: (SCREEN_H - 16) / 2 };
+  // player position is in WORLD coordinates (top-left of the 16x16 ship); the
+  // ship is drawn pinned to the centre of the play window and the world scrolls
+  // under it. Starts at the centre of the wrapping world.
+  player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8 };
   headingIndex = 0; // 0 = up
   bullets: Bullet[] = [];
   private firePrev = false;
@@ -100,6 +106,20 @@ export class GameScene {
     this.sfx.push(ev);
   }
 
+  // --- world <-> screen (ship pinned to view centre) ------------------------
+  private toScreenX(wx: number): number {
+    return wrapDelta(wx - (this.player.x + 8), WORLD_W) + VIEW_CX;
+  }
+  private toScreenY(wy: number): number {
+    return wrapDelta(wy - (this.player.y + 8), WORLD_H) + VIEW_CY;
+  }
+  /** Is a world point within the visible play window (plus margin)? */
+  private onView(wx: number, wy: number, margin = 12): boolean {
+    const sx = this.toScreenX(wx);
+    const sy = this.toScreenY(wy);
+    return sx >= -margin && sx < PLAYFIELD_W + margin && sy >= -margin && sy < SCREEN_H + margin;
+  }
+
   constructor(private assets: VideoAssets) {
     this.starfield.enable(true);
     this.starfield.setActiveSets(0, 2);
@@ -111,9 +131,14 @@ export class GameScene {
   }
 
   private spawnBase(): void {
-    const px = 40 + Math.random() * (224 - 80);
-    const py = 30 + Math.random() * (SCREEN_H - 60);
-    this.bases.push(new Base(px, py));
+    // place somewhere in the world, but not right on top of the ship
+    let wx = 0, wy = 0;
+    for (let tries = 0; tries < 30; tries++) {
+      wx = Math.random() * WORLD_W;
+      wy = Math.random() * WORLD_H;
+      if (wrapDist(wx, wy, this.player.x + 8, this.player.y + 8) > 140) break;
+    }
+    this.bases.push(new Base(wx, wy));
   }
 
   /** Scatter cosmo-mines in a couple of clusters (so chain detonations pay
@@ -122,23 +147,19 @@ export class GameScene {
   scatterMines(clusters = 2, perCluster = 4): void {
     let s = (this.mineSeed++ * 2654435761) >>> 0;
     const rnd = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 0x100000000);
-    const cx0 = SCREEN_W / 2;
-    const cy0 = SCREEN_H / 2;
+    const cx0 = this.player.x + 8;
+    const cy0 = this.player.y + 8;
     for (let k = 0; k < clusters; k++) {
       let gx = 0, gy = 0;
       for (let tries = 0; tries < 20; tries++) {
-        gx = 30 + rnd() * (PLAYFIELD_W - 60);
-        gy = 30 + rnd() * (SCREEN_H - 60);
-        if (Math.hypot(gx - cx0, gy - cy0) > 48) break; // away from spawn
+        gx = rnd() * WORLD_W;
+        gy = rnd() * WORLD_H;
+        if (wrapDist(gx, gy, cx0, cy0) > 120) break; // away from ship
       }
       for (let i = 0; i < perCluster; i++) {
-        const mx = gx + (rnd() - 0.5) * 40;
-        const my = gy + (rnd() - 0.5) * 40;
-        this.mines.push(new Mine(
-          Math.max(16, Math.min(PLAYFIELD_W - 16, mx)),
-          Math.max(16, Math.min(SCREEN_H - 16, my)),
-          Math.floor(rnd() * 32),
-        ));
+        const mx = wrap(gx + (rnd() - 0.5) * 40, WORLD_W);
+        const my = wrap(gy + (rnd() - 0.5) * 40, WORLD_H);
+        this.mines.push(new Mine(mx, my, Math.floor(rnd() * 32)));
       }
     }
   }
@@ -198,9 +219,9 @@ export class GameScene {
     // alert condition decays / advances its banner each frame
     this.alert.update();
 
-    // move ship (clamped to screen); world-scroll feel via the starfield
-    this.player.x = Math.max(0, Math.min(SCREEN_W - 16, this.player.x + x * speed));
-    this.player.y = Math.max(0, Math.min(SCREEN_H - 16, this.player.y + y * speed));
+    // move ship through the wrapping world (the view scrolls under it)
+    this.player.x = wrap(this.player.x + x * speed, WORLD_W);
+    this.player.y = wrap(this.player.y + y * speed, WORLD_H);
 
     // scroll the starfield opposite to travel for the flying illusion
     const sx = x > 0 ? 3 : x < 0 ? 4 : 0;
@@ -231,11 +252,9 @@ export class GameScene {
       b.y += b.dy;
       b.life--;
     }
-    this.bullets = this.bullets.filter(
-      (b) => b.life > 0 && b.x >= 0 && b.x < SCREEN_W && b.y >= 0 && b.y < SCREEN_H,
-    );
+    this.bullets = this.bullets.filter((b) => b.life > 0 && this.onView(b.x, b.y));
 
-    // enemy squadrons: spawn, update, collisions
+    // enemy squadrons live in screen space and home on the pinned ship centre
     if (!this.squadron.active) {
       if (this.spawnTimer > 0) this.spawnTimer--;
       else {
@@ -244,15 +263,18 @@ export class GameScene {
         this.spawnTimer = Math.round(150 / this.alert.aggression());
       }
     } else {
-      this.squadron.update(this.player.x + 8, this.player.y + 8);
+      this.squadron.update(VIEW_CX, VIEW_CY);
     }
 
-    // player bullets vs enemies (16x16 boxes)
+    // player bullets vs enemies (16x16 boxes) — bullets are world-space, so
+    // test them in screen space where the enemies live
     for (const e of this.squadron.enemies) {
       if (!e.alive) continue;
       for (const b of this.bullets) {
         if (b.life <= 0) continue;
-        if (b.x >= e.x && b.x < e.x + 16 && b.y >= e.y && b.y < e.y + 16) {
+        const bsx = this.toScreenX(b.x);
+        const bsy = this.toScreenY(b.y);
+        if (bsx >= e.x && bsx < e.x + 16 && bsy >= e.y && bsy < e.y + 16) {
           e.alive = false;
           b.life = 0;
           this.score += e.isLeader ? 200 : 70;
@@ -263,13 +285,15 @@ export class GameScene {
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
 
-    // bases: spawn (keep 1-2 on the field), update, fire
+    // bases: keep several spread across the world (the radar guides you to
+    // them), update, fire. World-space bullets are matched against each base
+    // through the nearest wrapped image so hits work across the seam.
     this.bases = this.bases.filter((b) => !b.destroyed);
-    if (this.bases.length < 2) {
+    if (this.bases.length < 4) {
       if (this.baseTimer > 0) this.baseTimer--;
       else {
         this.spawnBase();
-        this.baseTimer = 240;
+        this.baseTimer = 150;
       }
     }
     const pcx = this.player.x + 8;
@@ -283,7 +307,7 @@ export class GameScene {
     for (const b of this.bases) {
       for (const bul of this.bullets) {
         if (bul.life <= 0) continue;
-        const s = b.hit(bul.x, bul.y);
+        const s = b.hit(nearestImage(bul.x, b.x, WORLD_W), nearestImage(bul.y, b.y, WORLD_H));
         if (s > 0) {
           bul.life = 0;
           this.score += s;
@@ -297,7 +321,8 @@ export class GameScene {
     for (const m of this.mines) m.update();
     for (const bul of this.bullets) {
       if (bul.life <= 0) continue;
-      const idx = this.mines.findIndex((m) => m.overlaps(bul.x, bul.y, 1));
+      const idx = this.mines.findIndex((m) =>
+        m.overlaps(nearestImage(bul.x, m.x, WORLD_W), nearestImage(bul.y, m.y, WORLD_H), 1));
       if (idx >= 0) {
         bul.life = 0;
         this.score += detonateChain(this.mines, idx);
@@ -307,41 +332,42 @@ export class GameScene {
     this.mines = this.mines.filter((m) => m.alive);
     this.bullets = this.bullets.filter((bl) => bl.life > 0);
 
-    // advance enemy bullets
+    // advance enemy bullets (world-space); cull once they leave the view
     for (const eb of this.enemyBullets) {
       eb.x += eb.dx;
       eb.y += eb.dy;
       eb.life--;
     }
-    this.enemyBullets = this.enemyBullets.filter(
-      (eb) => eb.life > 0 && eb.x >= 0 && eb.x < SCREEN_W && eb.y >= 0 && eb.y < SCREEN_H,
-    );
+    this.enemyBullets = this.enemyBullets.filter((eb) => eb.life > 0 && this.onView(eb.x, eb.y));
 
-    // hazards vs player (enemies, enemy bullets, base bodies)
+    // hazards vs player (enemies, enemy bullets, base bodies, mines)
     if (this.invuln > 0) this.invuln--;
     else if (this.playerHit(pcx, pcy)) {
       this.lives = Math.max(0, this.lives - 1);
       this.emit("playerHit");
       this.invuln = 120;
-      this.player.x = (SCREEN_W - 16) / 2;
-      this.player.y = (SCREEN_H - 16) / 2;
       this.enemyBullets = [];
     }
   }
 
   private playerHit(pcx: number, pcy: number): boolean {
+    // ship is pinned to the view centre; enemies live in screen space
+    const shipL = VIEW_CX - 8;
+    const shipT = VIEW_CY - 8;
     for (const e of this.squadron.enemies) {
-      if (e.alive && this.player.x < e.x + 14 && this.player.x + 14 > e.x &&
-          this.player.y < e.y + 14 && this.player.y + 14 > e.y) return true;
+      if (e.alive && shipL < e.x + 14 && shipL + 14 > e.x &&
+          shipT < e.y + 14 && shipT + 14 > e.y) return true;
     }
+    // enemy bullets are world-space; compare at the ship's screen centre
     for (const eb of this.enemyBullets) {
-      if (Math.abs(eb.x - pcx) < 7 && Math.abs(eb.y - pcy) < 7) return true;
+      if (Math.abs(this.toScreenX(eb.x) - VIEW_CX) < 7 && Math.abs(this.toScreenY(eb.y) - VIEW_CY) < 7) return true;
     }
+    // bases / mines are world-space; wrap-aware distance to the ship
     for (const b of this.bases) {
-      if (b.overlaps(pcx, pcy, 7)) return true;
+      if (!b.destroyed && wrapDist(b.x, b.y, pcx, pcy) <= 18 + 7) return true;
     }
     for (const m of this.mines) {
-      if (m.overlaps(pcx, pcy, 6)) return true;
+      if (m.alive && wrapDist(m.x, m.y, pcx, pcy) <= 6 + 6) return true;
     }
     return false;
   }
@@ -350,26 +376,32 @@ export class GameScene {
     const rgb = new Uint8Array(SCREEN_W * SCREEN_H * 3); // black background
     this.starfield.render(rgb, SCREEN_W, this.assets.palette);
 
-    // player bullets: real gfx3 dot shape, bullet colours (palette 28-31)
+    // player bullets: real gfx3 dot shape, bullet colours (world -> screen)
     const pcol = this.assets.palette.colors[31] ?? [255, 255, 255];
     for (const b of this.bullets) {
-      if (this.assets.dots) {
-        drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 0, pcol, Math.round(b.x) - 2, Math.round(b.y) - 2);
-      }
+      if (!this.assets.dots || !this.onView(b.x, b.y, 4)) continue;
+      drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 0, pcol,
+        Math.round(this.toScreenX(b.x)) - 2, Math.round(this.toScreenY(b.y)) - 2);
     }
 
-    // cosmo-mines (real gfx2 spore sprite)
-    for (const m of this.mines) m.render(rgb, SCREEN_W, SCREEN_H, this.assets);
+    // cosmo-mines (real gfx2 spore sprite) — world -> screen, culled
+    for (const m of this.mines) {
+      if (!this.onView(m.x, m.y)) continue;
+      m.render(rgb, SCREEN_W, SCREEN_H, this.assets, this.toScreenX(m.x), this.toScreenY(m.y));
+    }
 
-    // bases (real gfx2 station sprites 52-55)
-    for (const b of this.bases) b.render(rgb, SCREEN_W, SCREEN_H, this.assets);
+    // bases (real gfx2 station sprites 52-55) — world -> screen, culled
+    for (const b of this.bases) {
+      if (!this.onView(b.x, b.y, 20)) continue;
+      b.render(rgb, SCREEN_W, SCREEN_H, this.assets, this.toScreenX(b.x), this.toScreenY(b.y));
+    }
 
-    // enemy bullets: real gfx3 dot shape, a distinct bullet colour
+    // enemy bullets: real gfx3 dot shape (world -> screen)
     const ecol = this.assets.palette.colors[29] ?? [255, 170, 40];
     for (const eb of this.enemyBullets) {
-      if (this.assets.dots) {
-        drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 2, ecol, Math.round(eb.x) - 2, Math.round(eb.y) - 2);
-      }
+      if (!this.assets.dots || !this.onView(eb.x, eb.y, 4)) continue;
+      drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 2, ecol,
+        Math.round(this.toScreenX(eb.x)) - 2, Math.round(this.toScreenY(eb.y)) - 2);
     }
 
     // enemies
@@ -384,13 +416,13 @@ export class GameScene {
       }
     }
 
-    // player ship (blink while invulnerable)
+    // player ship — pinned to the view centre (blink while invulnerable)
     if (this.assets.sprites && (this.invuln === 0 || (this.invuln >> 2) & 1)) {
       const h = this.headings()[this.headingIndex]!;
       drawSprite(
         rgb, SCREEN_W, SCREEN_H, this.assets.sprites, this.assets.palette,
         h.sprite, this.shipColor, h.flipx, h.flipy,
-        Math.round(this.player.x), Math.round(this.player.y),
+        VIEW_CX - 8, VIEW_CY - 8,
       );
     }
 
@@ -410,21 +442,21 @@ export class GameScene {
     return rgb;
   }
 
-  /** Bosconian's right-side radar: a scaled top-down scope of the playfield
-   *  showing the player, bases and enemies as blips. */
+  /** Bosconian's right-side radar: a top-down scope centred on the ship,
+   *  showing nearby world objects (bases, mines, enemies) as blips with the
+   *  ship fixed at the centre. Wrap-aware, so it works across the world seam. */
   private drawRadar(rgb: Uint8Array): void {
-    const PF = 224; // playfield extent (world = screen for now)
-    const rx0 = 228;
-    const ry0 = 44;
-    const rw = 56;
-    const rh = 168;
-    const px = (wx: number): number => rx0 + Math.round((wx / PF) * rw);
-    const py = (wy: number): number => ry0 + Math.round((wy / SCREEN_H) * rh);
+    const rx0 = 228, ry0 = 44, rw = 56, rh = 168;
+    const cx = rx0 + rw / 2, cy = ry0 + rh / 2;
+    const range = 420; // world units shown from centre to each edge
+    const pcx = this.player.x + 8, pcy = this.player.y + 8;
+    const rx = (wx: number): number => cx + (wrapDelta(wx - pcx, WORLD_W) / range) * (rw / 2);
+    const ry = (wy: number): number => cy + (wrapDelta(wy - pcy, WORLD_H) / range) * (rh / 2);
     const put = (x: number, y: number, c: [number, number, number], r = 0): void => {
       for (let dy = -r; dy <= r; dy++)
         for (let dx = -r; dx <= r; dx++) {
-          const xi = x + dx;
-          const yi = y + dy;
+          const xi = Math.round(x) + dx;
+          const yi = Math.round(y) + dy;
           if (xi < rx0 - 1 || xi > rx0 + rw + 1 || yi < ry0 - 1 || yi > ry0 + rh + 1) continue;
           if (xi < 0 || xi >= SCREEN_W || yi < 0 || yi >= SCREEN_H) continue;
           const o = (yi * SCREEN_W + xi) * 3;
@@ -442,11 +474,15 @@ export class GameScene {
       put(rx0 - 1, y, frame);
       put(rx0 + rw + 1, y, frame);
     }
-    // mines (dim yellow), bases (green), enemies (blue), player (white)
-    for (const m of this.mines) if (m.alive) put(px(m.x), py(m.y), [150, 140, 40], 0);
-    for (const b of this.bases) if (!b.destroyed) put(px(b.x), py(b.y), [80, 230, 80], 1);
-    for (const e of this.squadron.enemies) if (e.alive) put(px(e.x), py(e.y), [110, 160, 255], 0);
-    put(px(this.player.x + 8), py(this.player.y + 8), [255, 255, 255], 1);
+    // mines (dim yellow), bases (green), enemies (blue), ship (white centre)
+    for (const m of this.mines) if (m.alive) put(rx(m.x), ry(m.y), [150, 140, 40], 0);
+    for (const b of this.bases) if (!b.destroyed) put(rx(b.x), ry(b.y), [80, 230, 80], 1);
+    for (const e of this.squadron.enemies) {
+      // enemies live in screen space; their offset from the ship centre is a
+      // world-space delta directly (1px screen == 1px world near the centre)
+      if (e.alive) put(cx + ((e.x + 8 - VIEW_CX) / range) * (rw / 2), cy + ((e.y + 8 - VIEW_CY) / range) * (rh / 2), [110, 160, 255], 0);
+    }
+    put(cx, cy, [255, 255, 255], 1);
   }
 
   /** Draw text with the ROM font at pixel position (px0, py0). Digits 0-9 ->

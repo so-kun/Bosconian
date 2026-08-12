@@ -35,14 +35,16 @@ export class Mine {
     return Math.hypot(px - this.x, py - this.y) <= MINE_R + r;
   }
 
-  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets): void {
+  /** Draw the mine centred on screen position (sx, sy); defaults to the mine's
+   *  own coordinates so callers/tests can treat them as screen space. */
+  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets, sx = this.x, sy = this.y): void {
     if (!this.alive || !assets.sprites) return;
     // blink: skip drawing on part of the cycle
     if ((this.t >> 3) % 4 === 3) return;
     drawSprite(
       rgb, width, height, assets.sprites, assets.palette,
       MINE_SPRITE, MINE_COLOR, false, false,
-      Math.round(this.x) - 8, Math.round(this.y) - 8,
+      Math.round(sx) - 8, Math.round(sy) - 8,
     );
   }
 }

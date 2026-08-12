@@ -124,11 +124,14 @@ export class Base {
     return Math.hypot(px - this.x, py - this.y) <= RADIUS + r;
   }
 
-  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets): void {
+  /** Draw the station centred on the given screen position (sx, sy). In the
+   *  wrapping world the scene supplies the on-screen centre; default to the
+   *  object's own coordinates so callers/tests can treat them as screen space. */
+  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets, sx = this.x, sy = this.y): void {
     if (this.destroyed || !assets.sprites) return;
-    // 2x2 real station sprite group, centred on (x, y).
-    const left = Math.round(this.x) - 16;
-    const top = Math.round(this.y) - 16;
+    // 2x2 real station sprite group, centred on (sx, sy).
+    const left = Math.round(sx) - 16;
+    const top = Math.round(sy) - 16;
     const draw = (code: number, ox: number, oy: number): void =>
       drawSprite(rgb, width, height, assets.sprites!, assets.palette, code, BASE_COLOR, false, false, left + ox, top + oy);
     draw(BASE_TL, 0, 0);
@@ -139,8 +142,8 @@ export class Base {
     // Reactor highlight: when the core is vulnerable, pulse a bright pen at the
     // centre so the player can read the shootable window.
     if (this.coreAlive && this.coreVulnerable() && ((this.coreTimer >> 3) & 1)) {
-      const cx = Math.round(this.x);
-      const cy = Math.round(this.y);
+      const cx = Math.round(sx);
+      const cy = Math.round(sy);
       for (let dy = -2; dy <= 2; dy++)
         for (let dx = -2; dx <= 2; dx++) {
           if (dx * dx + dy * dy > 5) continue;

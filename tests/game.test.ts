@@ -5,6 +5,7 @@ import { Starfield } from "../src/video/starfield";
 import { buildPalette, type Palette } from "../src/video/palette";
 import { GameScene, type Controls } from "../src/game/scene";
 import { Mine } from "../src/game/mine";
+import { WORLD_W, WORLD_H } from "../src/game/world";
 import { SCREEN_H, SCREEN_W, type VideoAssets } from "../src/video/render";
 
 function testPalette(): Palette {
@@ -119,15 +120,16 @@ describe("GameScene", () => {
     expect(g.bullets[0]!.y).toBeLessThan(startY);
   });
 
-  it("clamps the ship inside the screen", () => {
+  it("moves the ship through the wrapping world (position stays in bounds)", () => {
     const g = new GameScene(assets);
     const c = noControls();
     c.up = true;
     c.left = true;
-    for (let i = 0; i < 500; i++) g.update(c);
+    for (let i = 0; i < 2000; i++) g.update(c); // enough travel to cross a seam
     expect(g.player.x).toBeGreaterThanOrEqual(0);
     expect(g.player.y).toBeGreaterThanOrEqual(0);
-    expect(g.player.x).toBeLessThanOrEqual(SCREEN_W - 16);
+    expect(g.player.x).toBeLessThan(WORLD_W);
+    expect(g.player.y).toBeLessThan(WORLD_H);
   });
 
   it("renders a full-size framebuffer", () => {
@@ -178,5 +180,18 @@ describe("GameScene", () => {
     c.fire = true;
     g.update(c);
     expect(g.sfx).toContain("fire");
+  });
+
+  it("keeps the ship pinned to the view centre after scrolling the world", () => {
+    const g = new GameScene(assets);
+    const c = noControls();
+    c.right = true;
+    c.down = true;
+    for (let i = 0; i < 300; i++) g.update(c); // scroll a long way through the world
+    const rgb = g.render();
+    // the ship (mock sprite fills its 16x16) is drawn centred at (112,112)
+    const cx = 112, cy = 112;
+    const o = (cy * SCREEN_W + cx) * 3;
+    expect(rgb[o]! + rgb[o + 1]! + rgb[o + 2]!).toBeGreaterThan(0);
   });
 });
