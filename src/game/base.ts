@@ -1,10 +1,22 @@
-// Enemy base ("spy ship") — original game logic + geometric rendering.
+// Enemy base ("spy ship") — original game logic, rendered with the real ROM
+// station graphic.
 //
 // The Bosconian base is a hexagonal station: six cannons around a central
-// core. It is destroyed by shooting the core (which periodically opens) or by
-// destroying all six cannons; it fires at the player. The real game draws the
-// base from bg tilemap fragments; here it is drawn geometrically (recognizable
-// and functional) until tile-accurate structure data is reconstructed.
+// reactor core. It is destroyed by shooting the core (which periodically
+// opens) or by destroying all six cannons; it fires at the player.
+//
+// Rendering uses the real gfx2 sprites: the station body is a 2x2 sprite group
+// (codes 52/53/54/55 = TL/TR/BL/BR) drawn in the green sprite colour bank 7 —
+// the reactor-star core sits where the four quadrants meet. Sprites 52-55 were
+// identified by assembling the gfx2 sprite atlas (see analysis/base_asm.png).
+
+import { drawSprite, type VideoAssets } from "../video/render";
+
+const BASE_TL = 52;
+const BASE_TR = 53;
+const BASE_BL = 54;
+const BASE_BR = 55;
+const BASE_COLOR = 7; // green sprite palette bank
 
 export interface EnemyBullet {
   x: number;
@@ -112,46 +124,34 @@ export class Base {
     return Math.hypot(px - this.x, py - this.y) <= RADIUS + r;
   }
 
-  render(rgb: Uint8Array, width: number, height: number): void {
-    if (this.destroyed) return;
-    const plot = (x: number, y: number, r: number, g: number, b: number): void => {
-      const xi = Math.round(x);
-      const yi = Math.round(y);
-      if (xi < 0 || xi >= width || yi < 0 || yi >= height) return;
-      const o = (yi * width + xi) * 3;
-      rgb[o] = r;
-      rgb[o + 1] = g;
-      rgb[o + 2] = b;
-    };
-    // hexagonal frame: line segments between adjacent alive cannons
-    for (let i = 0; i < CANNON_COUNT; i++) {
-      const a = this.cannons[i]!;
-      const bC = this.cannons[(i + 1) % CANNON_COUNT]!;
-      if (!a.alive && !bC.alive) continue;
-      const pa = this.cannonPos(a);
-      const pb = this.cannonPos(bC);
-      const steps = 12;
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        plot(pa.x + (pb.x - pa.x) * t, pa.y + (pb.y - pa.y) * t, 30, 150, 40);
-      }
-    }
-    // cannon pods
-    for (const c of this.cannons) {
-      if (!c.alive) continue;
-      const p = this.cannonPos(c);
-      for (let dy = -CANNON_R; dy <= CANNON_R; dy++)
-        for (let dx = -CANNON_R; dx <= CANNON_R; dx++)
-          if (dx * dx + dy * dy <= CANNON_R * CANNON_R) plot(p.x + dx, p.y + dy, 60, 220, 70);
-    }
-    // core: red, brighter/larger when open (vulnerable)
-    if (this.coreAlive) {
-      const open = this.coreVulnerable();
-      const cr = open ? CORE_R : CORE_R - 2;
-      const [r, g, b] = open ? [255, 90, 70] : [170, 40, 30];
-      for (let dy = -cr; dy <= cr; dy++)
-        for (let dx = -cr; dx <= cr; dx++)
-          if (dx * dx + dy * dy <= cr * cr) plot(this.x + dx, this.y + dy, r, g, b);
+  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets): void {
+    if (this.destroyed || !assets.sprites) return;
+    // 2x2 real station sprite group, centred on (x, y).
+    const left = Math.round(this.x) - 16;
+    const top = Math.round(this.y) - 16;
+    const draw = (code: number, ox: number, oy: number): void =>
+      drawSprite(rgb, width, height, assets.sprites!, assets.palette, code, BASE_COLOR, false, false, left + ox, top + oy);
+    draw(BASE_TL, 0, 0);
+    draw(BASE_TR, 16, 0);
+    draw(BASE_BL, 0, 16);
+    draw(BASE_BR, 16, 16);
+
+    // Reactor highlight: when the core is vulnerable, pulse a bright pen at the
+    // centre so the player can read the shootable window.
+    if (this.coreAlive && this.coreVulnerable() && ((this.coreTimer >> 3) & 1)) {
+      const cx = Math.round(this.x);
+      const cy = Math.round(this.y);
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx * dx + dy * dy > 5) continue;
+          const xi = cx + dx;
+          const yi = cy + dy;
+          if (xi < 0 || xi >= width || yi < 0 || yi >= height) continue;
+          const o = (yi * width + xi) * 3;
+          rgb[o] = 255;
+          rgb[o + 1] = 255;
+          rgb[o + 2] = 200;
+        }
     }
   }
 }

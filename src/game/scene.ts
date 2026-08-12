@@ -247,8 +247,8 @@ export class GameScene {
       }
     }
 
-    // bases (geometric hexagonal spy ships)
-    for (const b of this.bases) b.render(rgb, SCREEN_W, SCREEN_H);
+    // bases (real gfx2 station sprites 52-55)
+    for (const b of this.bases) b.render(rgb, SCREEN_W, SCREEN_H, this.assets);
 
     // enemy bullets: real gfx3 dot shape, a distinct bullet colour
     const ecol = this.assets.palette.colors[29] ?? [255, 170, 40];

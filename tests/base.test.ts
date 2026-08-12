@@ -2,6 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 import { Base, type EnemyBullet } from "../src/game/base";
+import { buildPalette } from "../src/video/palette";
+import { SCREEN_H, SCREEN_W, type VideoAssets } from "../src/video/render";
 
 const RADIUS = 18;
 
@@ -72,4 +74,30 @@ describe("Base", () => {
     expect(b.overlaps(100, 100 + RADIUS + 6, 7)).toBe(true);
     expect(b.overlaps(100, 100 + RADIUS + 40, 7)).toBe(false);
   });
+
+  it("renders the real station sprite group (52-55) centred on the base", () => {
+    // assets with all 56 sprite slots present; codes 52-55 are opaque
+    const sprites = Array.from({ length: 56 }, (_, i) =>
+      new Uint8Array(256).fill(i >= 52 && i <= 55 ? 1 : 0),
+    );
+    const palette = buildPalette(new Uint8Array(0x260));
+    palette.spritePen[BASE_BANK * 4 + 1] = 1; // opaque pen
+    palette.colors[1] = [0, 200, 0];
+    const assets: VideoAssets = { chars: [], sprites, palette };
+
+    const rgb = new Uint8Array(SCREEN_W * SCREEN_H * 3);
+    const b = new Base(100, 100);
+    b.render(rgb, SCREEN_W, SCREEN_H, assets);
+
+    // the 32x32 group is centred on (100,100); its interior should be painted
+    const o = (100 * SCREEN_W + 100) * 3;
+    expect(rgb[o + 1]).toBeGreaterThan(0);
+    // a destroyed base draws nothing
+    const rgb2 = new Uint8Array(SCREEN_W * SCREEN_H * 3);
+    b.destroyed = true;
+    b.render(rgb2, SCREEN_W, SCREEN_H, assets);
+    expect(rgb2.every((v) => v === 0)).toBe(true);
+  });
 });
+
+const BASE_BANK = 7;
