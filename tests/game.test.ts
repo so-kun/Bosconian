@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Starfield } from "../src/video/starfield";
 import { buildPalette, type Palette } from "../src/video/palette";
 import { GameScene, type Controls } from "../src/game/scene";
+import { Mine } from "../src/game/mine";
 import { SCREEN_H, SCREEN_W, type VideoAssets } from "../src/video/render";
 
 function testPalette(): Palette {
@@ -157,5 +158,15 @@ describe("GameScene", () => {
     expect(g.basesClearedThisSector).toBe(0);
     expect(g.alert.condition).toBe("RED"); // destroying bases scrambles the fleet
     expect(g.score).toBeGreaterThan(0); // sector-clear bonus
+  });
+
+  it("scatters cosmo-mines and loses a life on contact", () => {
+    const g = new GameScene(assets);
+    expect(g.mines.length).toBeGreaterThan(0);
+    // drop a mine right on the player and step
+    g.mines.push(new Mine(g.player.x + 8, g.player.y + 8));
+    const lives = g.lives;
+    g.update(noControls());
+    expect(g.lives).toBe(lives - 1);
   });
 });

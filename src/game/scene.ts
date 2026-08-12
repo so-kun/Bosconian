@@ -12,6 +12,7 @@ import { drawDot, drawSprite, SCREEN_H, SCREEN_W, type VideoAssets } from "../vi
 import { Squadron } from "./enemies";
 import { Base, type EnemyBullet } from "./base";
 import { AlertSystem } from "./alert";
+import { Mine, detonateChain } from "./mine";
 
 const PLAYFIELD_W = 224; // left playfield width; right strip is the radar
 
@@ -76,18 +77,50 @@ export class GameScene {
   basesPerSector = 6;
   basesClearedThisSector = 0;
 
+  // cosmo-mines (stationary chain-detonating hazards)
+  mines: Mine[] = [];
+  private mineSeed = 1;
+
   constructor(private assets: VideoAssets) {
     this.starfield.enable(true);
     this.starfield.setActiveSets(0, 2);
     this.squadron = new Squadron({
       screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5,
     });
+    this.scatterMines();
   }
 
   private spawnBase(): void {
     const px = 40 + Math.random() * (224 - 80);
     const py = 30 + Math.random() * (SCREEN_H - 60);
     this.bases.push(new Base(px, py));
+  }
+
+  /** Scatter cosmo-mines in a couple of clusters (so chain detonations pay
+   *  off), keeping clear of the player's central spawn. Deterministic per
+   *  sector via a small LCG. */
+  scatterMines(clusters = 2, perCluster = 4): void {
+    let s = (this.mineSeed++ * 2654435761) >>> 0;
+    const rnd = (): number => ((s = (s * 1664525 + 1013904223) >>> 0) / 0x100000000);
+    const cx0 = SCREEN_W / 2;
+    const cy0 = SCREEN_H / 2;
+    for (let k = 0; k < clusters; k++) {
+      let gx = 0, gy = 0;
+      for (let tries = 0; tries < 20; tries++) {
+        gx = 30 + rnd() * (PLAYFIELD_W - 60);
+        gy = 30 + rnd() * (SCREEN_H - 60);
+        if (Math.hypot(gx - cx0, gy - cy0) > 48) break; // away from spawn
+      }
+      for (let i = 0; i < perCluster; i++) {
+        const mx = gx + (rnd() - 0.5) * 40;
+        const my = gy + (rnd() - 0.5) * 40;
+        this.mines.push(new Mine(
+          Math.max(16, Math.min(PLAYFIELD_W - 16, mx)),
+          Math.max(16, Math.min(SCREEN_H - 16, my)),
+          Math.floor(rnd() * 32),
+        ));
+      }
+    }
   }
 
   /** A base ("spy ship") was destroyed: the fleet scrambles (CONDITION RED)
@@ -103,6 +136,7 @@ export class GameScene {
       this.score += 1000 * (this.sector - 1); // sector-clear bonus
       this.basesPerSector = Math.min(12, this.basesPerSector + 1); // ramp difficulty
       this.alert.showBanner("SECTOR CLEARED", [120, 220, 255], 140);
+      this.scatterMines(2 + Math.min(3, this.sector - 1)); // more mines each sector
     }
   }
 
@@ -235,6 +269,19 @@ export class GameScene {
     }
     this.bullets = this.bullets.filter((bl) => bl.life > 0);
 
+    // cosmo-mines: blink, then player bullets detonate them (with chaining)
+    for (const m of this.mines) m.update();
+    for (const bul of this.bullets) {
+      if (bul.life <= 0) continue;
+      const idx = this.mines.findIndex((m) => m.overlaps(bul.x, bul.y, 1));
+      if (idx >= 0) {
+        bul.life = 0;
+        this.score += detonateChain(this.mines, idx);
+      }
+    }
+    this.mines = this.mines.filter((m) => m.alive);
+    this.bullets = this.bullets.filter((bl) => bl.life > 0);
+
     // advance enemy bullets
     for (const eb of this.enemyBullets) {
       eb.x += eb.dx;
@@ -267,6 +314,9 @@ export class GameScene {
     for (const b of this.bases) {
       if (b.overlaps(pcx, pcy, 7)) return true;
     }
+    for (const m of this.mines) {
+      if (m.overlaps(pcx, pcy, 6)) return true;
+    }
     return false;
   }
 
@@ -281,6 +331,9 @@ export class GameScene {
         drawDot(rgb, SCREEN_W, SCREEN_H, this.assets.dots, 0, pcol, Math.round(b.x) - 2, Math.round(b.y) - 2);
       }
     }
+
+    // cosmo-mines (real gfx2 spore sprite)
+    for (const m of this.mines) m.render(rgb, SCREEN_W, SCREEN_H, this.assets);
 
     // bases (real gfx2 station sprites 52-55)
     for (const b of this.bases) b.render(rgb, SCREEN_W, SCREEN_H, this.assets);
@@ -363,7 +416,8 @@ export class GameScene {
       put(rx0 - 1, y, frame);
       put(rx0 + rw + 1, y, frame);
     }
-    // bases (green), enemies (blue), player (white)
+    // mines (dim yellow), bases (green), enemies (blue), player (white)
+    for (const m of this.mines) if (m.alive) put(px(m.x), py(m.y), [150, 140, 40], 0);
     for (const b of this.bases) if (!b.destroyed) put(px(b.x), py(b.y), [80, 230, 80], 1);
     for (const e of this.squadron.enemies) if (e.alive) put(px(e.x), py(e.y), [110, 160, 255], 0);
     put(px(this.player.x + 8), py(this.player.y + 8), [255, 255, 255], 1);
