@@ -248,7 +248,7 @@ export class Z80 {
       ((r16 >> 8) & (FS | FXY)) |
       (r16 === 0 ? FZ : 0) |
       (((x ^ y ^ r16) >> 8) & FH) |
-      ((((x ^ r16) & (y ^ r16 ^ 0xffff)) >> 13) & FP) |
+      ((((x ^ y ^ 0xffff) & (x ^ r16)) >> 13) & FP) |
       (res > 0xffff ? FC : 0);
     this.hl = r16;
   }

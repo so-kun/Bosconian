@@ -106,6 +106,26 @@ describe("Z80 basics", () => {
     expect(mem[0x302]).toBe(0x5b);
   });
 
+  it("ADC HL,rr overflow flag", () => {
+    // LD HL,0x7fff; LD BC,1; OR A (clear carry); ADC HL,BC -> 0x8000, PV set
+    const { cpu } = makeCpu([0x21, 0xff, 0x7f, 0x01, 0x01, 0x00, 0xb7, 0xed, 0x4a]);
+    run(cpu, 4);
+    expect(cpu.hl).toBe(0x8000);
+    expect(cpu.f & 0x04).toBe(0x04); // PV overflow
+    expect(cpu.f & 0x80).toBe(0x80); // S
+    expect(cpu.f & 0x01).toBe(0); // no carry
+  });
+
+  it("SBC HL,rr overflow and borrow", () => {
+    // LD HL,0x8000; LD DE,1; OR A; SBC HL,DE -> 0x7fff, PV set, no borrow
+    const { cpu } = makeCpu([0x21, 0x00, 0x80, 0x11, 0x01, 0x00, 0xb7, 0xed, 0x52]);
+    run(cpu, 4);
+    expect(cpu.hl).toBe(0x7fff);
+    expect(cpu.f & 0x04).toBe(0x04);
+    expect(cpu.f & 0x01).toBe(0);
+    expect(cpu.f & 0x02).toBe(0x02); // N
+  });
+
   it("IM1 interrupt: pushes PC and jumps to 0x38", () => {
     // EI; NOP; NOP ... INT arrives
     const { cpu, mem } = makeCpu([0xfb, 0x00, 0x00, 0x00]);
