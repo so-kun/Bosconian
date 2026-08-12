@@ -110,6 +110,19 @@ ROMを実行せず、ゲームの挙動を TypeScript で再実装する方針�
 - 接触で自機撃墜。射撃で撃破＝**連鎖爆発**（近傍の機雷をBFSで誘爆、各50点）。
 - レーダーに機雷ブリップ（淡い黄）を表示。
 
+## 第7段: サウンド（実装済み）
+
+`src/audio/sound.ts` `SoundEngine`（Web Audio 合成＋SpeechSynthesis 音声）:
+- 外部音源アセットなし。SEはWeb Audioでプロシージャル合成、音声コールアウトは
+  ブラウザの SpeechSynthesis を使用（node/テスト環境では無音で安全に縮退）。
+- シーンは音声を持たず、`scene.sfx` に**イベント文字列**をキューイング。
+  runner が毎フレーム drain して `SoundEngine.play()` に渡す（シーンはnodeテスト可能）。
+- イベント: fire / explosion / baseExplode / mineExplode / playerHit /
+  alertYellow / alertRed / sectorClear / blastOff。
+- 音声: "Blast off"（開始）, "Alert"（YELLOW）, "Condition red"（RED）,
+  "Sector cleared"。ブラウザのオートプレイ制限のためユーザー操作で AudioContext を resume。
+- `M` キーでミュート切替。
+
 ## 今後の段階（route c ロードマップ）
 
 1. **自機**: 8方向スプライトの回転対応の精緻化、加減速、画面外スクロール表現

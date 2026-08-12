@@ -44,6 +44,7 @@ function startGame(): void {
   controlsHint.hidden = false;
   game = new GameRunner(canvas, buildAssets(loadedRom));
   game.attachKeyboard();
+  game.sound.resume(); // this call path is a user gesture (button click)
   game.start();
 }
 

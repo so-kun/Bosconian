@@ -4,9 +4,11 @@
 
 import { SCREEN_H, SCREEN_W, type VideoAssets } from "../video/render";
 import { GameScene, type Controls } from "./scene";
+import { SoundEngine } from "../audio/sound";
 
 export class GameRunner {
   readonly scene: GameScene;
+  readonly sound = new SoundEngine();
   private ctx: CanvasRenderingContext2D;
   private image: ImageData;
   private controls: Controls = { up: false, down: false, left: false, right: false, fire: false };
@@ -39,6 +41,11 @@ export class GameRunner {
   private loop = (): void => {
     if (!this.running) return;
     this.scene.update(this.controls);
+    // drain and play queued sound cues
+    if (this.scene.sfx.length) {
+      for (const ev of this.scene.sfx) this.sound.play(ev);
+      this.scene.sfx.length = 0;
+    }
     this.blit();
     this.raf = requestAnimationFrame(this.loop);
   };
@@ -51,11 +58,12 @@ export class GameRunner {
         case "ArrowLeft": case "KeyA": this.controls.left = down; break;
         case "ArrowRight": case "KeyD": this.controls.right = down; break;
         case "Space": case "ControlLeft": this.controls.fire = down; break;
+        case "KeyM": if (down) this.sound.setEnabled(!this.sound.enabled); break;
         default: return;
       }
       e.preventDefault();
     };
-    const kd = (e: Event): void => set(e as KeyboardEvent, true);
+    const kd = (e: Event): void => { this.sound.resume(); set(e as KeyboardEvent, true); };
     const ku = (e: Event): void => set(e as KeyboardEvent, false);
     target.addEventListener("keydown", kd);
     target.addEventListener("keyup", ku);

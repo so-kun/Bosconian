@@ -169,4 +169,14 @@ describe("GameScene", () => {
     g.update(noControls());
     expect(g.lives).toBe(lives - 1);
   });
+
+  it("emits sound cues (blast-off at start, fire on shooting)", () => {
+    const g = new GameScene(assets);
+    expect(g.sfx).toContain("blastOff"); // queued in the constructor
+    g.sfx.length = 0;
+    const c = noControls();
+    c.fire = true;
+    g.update(c);
+    expect(g.sfx).toContain("fire");
+  });
 });

@@ -24,6 +24,19 @@ export interface Controls {
   fire: boolean;
 }
 
+/** Sound cues the scene emits each frame; the (browser-only) runner drains
+ *  and plays them, keeping the scene itself audio-free and node-testable. */
+export type SfxEvent =
+  | "fire"
+  | "explosion"
+  | "baseExplode"
+  | "mineExplode"
+  | "playerHit"
+  | "alertYellow"
+  | "alertRed"
+  | "sectorClear"
+  | "blastOff";
+
 interface Bullet {
   x: number;
   y: number;
@@ -81,6 +94,12 @@ export class GameScene {
   mines: Mine[] = [];
   private mineSeed = 1;
 
+  /** Sound-cue queue drained by the runner each frame. */
+  readonly sfx: SfxEvent[] = [];
+  private emit(ev: SfxEvent): void {
+    this.sfx.push(ev);
+  }
+
   constructor(private assets: VideoAssets) {
     this.starfield.enable(true);
     this.starfield.setActiveSets(0, 2);
@@ -88,6 +107,7 @@ export class GameScene {
       screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5,
     });
     this.scatterMines();
+    this.emit("blastOff"); // launch voice cue on the first drained frame
   }
 
   private spawnBase(): void {
@@ -127,7 +147,8 @@ export class GameScene {
    *  and the sector's objective count advances; clearing the quota completes
    *  the sector. */
   private onBaseDestroyed(): void {
-    this.alert.raise("RED", 360);
+    this.emit("baseExplode");
+    if (this.alert.raise("RED", 360)) this.emit("alertRed");
     if (!this.squadron.active) this.squadron.spawn(this.spawnSeed++); // immediate assault
     this.basesClearedThisSector++;
     if (this.basesClearedThisSector >= this.basesPerSector) {
@@ -137,6 +158,7 @@ export class GameScene {
       this.basesPerSector = Math.min(12, this.basesPerSector + 1); // ramp difficulty
       this.alert.showBanner("SECTOR CLEARED", [120, 220, 255], 140);
       this.scatterMines(2 + Math.min(3, this.sector - 1)); // more mines each sector
+      this.emit("sectorClear");
     }
   }
 
@@ -197,8 +219,9 @@ export class GameScene {
         life: 60,
       });
       this.fireCooldown = 8;
+      this.emit("fire");
       // firing with a base on the field gets you spotted -> ALERT (yellow)
-      if (this.bases.length > 0) this.alert.raise("YELLOW", 240);
+      if (this.bases.length > 0 && this.alert.raise("YELLOW", 240)) this.emit("alertYellow");
     }
     this.firePrev = c.fire;
 
@@ -233,6 +256,7 @@ export class GameScene {
           e.alive = false;
           b.life = 0;
           this.score += e.isLeader ? 200 : 70;
+          this.emit("explosion");
           break;
         }
       }
@@ -253,7 +277,7 @@ export class GameScene {
     const beforeFire = this.enemyBullets.length;
     for (const b of this.bases) b.update(pcx, pcy, this.enemyBullets);
     // a base opening fire raises the alert to at least YELLOW
-    if (this.enemyBullets.length > beforeFire) this.alert.raise("YELLOW", 240);
+    if (this.enemyBullets.length > beforeFire && this.alert.raise("YELLOW", 240)) this.emit("alertYellow");
 
     // player bullets vs bases
     for (const b of this.bases) {
@@ -277,6 +301,7 @@ export class GameScene {
       if (idx >= 0) {
         bul.life = 0;
         this.score += detonateChain(this.mines, idx);
+        this.emit("mineExplode");
       }
     }
     this.mines = this.mines.filter((m) => m.alive);
@@ -296,6 +321,7 @@ export class GameScene {
     if (this.invuln > 0) this.invuln--;
     else if (this.playerHit(pcx, pcy)) {
       this.lives = Math.max(0, this.lives - 1);
+      this.emit("playerHit");
       this.invuln = 120;
       this.player.x = (SCREEN_W - 16) / 2;
       this.player.y = (SCREEN_H - 16) / 2;
