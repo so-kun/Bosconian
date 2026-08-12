@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bosconian Recreation</title>
+  <style>
+    :root {
+      --bg: #0a0a12;
+      --panel: #14141f;
+      --border: #2a2a3a;
+      --text: #d8d8e8;
+      --dim: #8888a0;
+      --ok: #4caf78;
+      --bad: #e05555;
+      --warn: #e0a940;
+      --accent: #5878ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Courier New", ui-monospace, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    h1 { font-size: 1.2rem; letter-spacing: 0.3em; color: var(--accent); }
+    #screen-container {
+      background: #000;
+      border: 1px solid var(--border);
+      /* native 288x224, scaled up 3x, rendered by later phases */
+      width: 864px;
+      max-width: 100%;
+    }
+    canvas { display: block; width: 100%; image-rendering: pixelated; }
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 2rem;
+      margin: 1rem 0;
+      text-align: center;
+      color: var(--dim);
+      cursor: pointer;
+      width: 864px;
+      max-width: 100%;
+      transition: border-color 0.15s;
+    }
+    #drop-zone.dragover { border-color: var(--accent); color: var(--text); }
+    #rom-report {
+      width: 864px;
+      max-width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 1rem;
+      margin-bottom: 1rem;
+      font-size: 0.8rem;
+    }
+    #rom-report table { width: 100%; border-collapse: collapse; }
+    #rom-report th, #rom-report td {
+      text-align: left;
+      padding: 0.15rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .st-ok { color: var(--ok); }
+    .st-bad_hash { color: var(--bad); }
+    .st-missing { color: var(--warn); }
+    .notice { color: var(--dim); font-size: 0.75rem; line-height: 1.5; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>BOSCONIAN</h1>
+  <div id="screen-container" hidden>
+    <canvas id="screen" width="288" height="224"></canvas>
+  </div>
+  <div id="drop-zone">
+    ROMセット（bosco.zip 等）をここにドラッグ＆ドロップ<br />
+    またはクリックしてファイルを選択<br /><br />
+    <span class="notice">
+      ROMイメージは本プロジェクトには含まれません。ご自身で合法的に用意した
+      MAME形式のROMセットを読み込んでください。ファイルはこのブラウザ内でのみ
+      処理され、外部に送信されることはありません。
+    </span>
+    <input type="file" id="file-input" multiple accept=".zip,.bin,.rom,.1d,.5c" hidden />
+  </div>
+  <div id="rom-report" hidden></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
