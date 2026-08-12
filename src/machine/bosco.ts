@@ -102,6 +102,8 @@ export class BoscoMachine {
 
   /** optional per-instruction trace hook (phase 5/6 trace-compare) */
   onTrace: ((cpu: CpuId, pc: number) => void) | null = null;
+  /** optional I/O access hook for debugging (addr in 0x6800-0x91ff) */
+  onIoAccess: ((kind: "r" | "w", addr: number, value: number) => void) | null = null;
 
   constructor(
     roms: { maincpu: Uint8Array; sub: Uint8Array; sub2: Uint8Array },
@@ -135,6 +137,7 @@ export class BoscoMachine {
     if (addr < 0x4000) {
       return this.roms[id][addr] ?? 0xff;
     }
+    if (this.onIoAccess && addr >= 0x6800 && addr < 0x9200) this.onIoAccess("r", addr, 0);
     if (addr >= 0x6800 && addr <= 0x6807) {
       // DSW: bit0 from DSWB, bit1 from DSWA, one switch per address
       const bit0 = (this.dswB >> (addr & 7)) & 1;
