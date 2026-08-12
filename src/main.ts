@@ -29,6 +29,7 @@ function onRomsLoaded(result: LoadedRomSet): void {
   screenContainer.hidden = false;
   dropZone.hidden = true;
   emulator = new Emulator(canvas, result);
+  emulator.attachKeyboard();
   emulator.start();
 }
 

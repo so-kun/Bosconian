@@ -7,6 +7,8 @@
 // and others) — bosco_map, bosco(machine_config), galaga_state IRQ helpers.
 
 import { Z80, type Z80Bus } from "../core/z80";
+import { Namco06 } from "./namco06";
+import { Namco51, makeInputState, type InputState } from "./namco51";
 
 export const MASTER_CLOCK = 18_432_000;
 export const CPU_CLOCK = MASTER_CLOCK / 6; // 3.072 MHz
@@ -105,6 +107,12 @@ export class BoscoMachine {
   /** optional I/O access hook for debugging (addr in 0x6800-0x91ff) */
   onIoAccess: ((kind: "r" | "w", addr: number, value: number) => void) | null = null;
 
+  // Custom-chip bus interfaces and the 51XX I/O chip (HLE).
+  input: InputState = makeInputState();
+  n06xx0: Namco06; // maincpu side: 51XX (slot0), 50XX_1 (slot2), 54XX (slot3)
+  n06xx1: Namco06; // subcpu side: 50XX_2 (slot0), 52XX (slot1)
+  n51xx: Namco51;
+
   constructor(
     roms: { maincpu: Uint8Array; sub: Uint8Array; sub2: Uint8Array },
     public io: BoscoIO = nullIO(),
@@ -115,6 +123,11 @@ export class BoscoMachine {
       new Z80(new CpuBus(this, 1)),
       new Z80(new CpuBus(this, 2)),
     ];
+    // 06XX clocks: _0 = MASTER/6/64, _1 = MASTER/6/512 -> NMI periods 64/512.
+    this.n06xx0 = new Namco06(64);
+    this.n06xx1 = new Namco06(512);
+    this.n51xx = new Namco51(this.input);
+    this.n06xx0.attach(0, this.n51xx);
     this.reset();
   }
 
@@ -128,6 +141,9 @@ export class BoscoMachine {
     this.watchdogCounter = 0;
     this.scanline = 0;
     this.sharedRam.fill(0);
+    this.n06xx0.reset();
+    this.n06xx1.reset();
+    this.n51xx.reset();
     // videoRam deliberately left as-is: real DRAM keeps garbage across resets
   }
 
@@ -144,12 +160,12 @@ export class BoscoMachine {
       const bit1 = (this.dswA >> (addr & 7)) & 1;
       return bit0 | (bit1 << 1);
     }
-    if (addr >= 0x7000 && addr <= 0x70ff) return this.io.n06xx0DataR();
-    if (addr === 0x7100) return this.io.n06xx0CtrlR();
+    if (addr >= 0x7000 && addr <= 0x70ff) return this.n06xx0.dataR();
+    if (addr === 0x7100) return this.n06xx0.ctrlR();
     if (addr >= 0x7800 && addr <= 0x7fff) return this.sharedRam[addr & 0x7ff]!;
     if (addr >= 0x8000 && addr <= 0x8fff) return this.videoRam[addr & 0xfff]!;
-    if (addr >= 0x9000 && addr <= 0x90ff) return this.io.n06xx1DataR();
-    if (addr === 0x9100) return this.io.n06xx1CtrlR();
+    if (addr >= 0x9000 && addr <= 0x90ff) return this.n06xx1.dataR();
+    if (addr === 0x9100) return this.n06xx1.ctrlR();
     return 0xff;
   }
 
@@ -169,11 +185,11 @@ export class BoscoMachine {
       return;
     }
     if (addr >= 0x7000 && addr <= 0x70ff) {
-      this.io.n06xx0DataW(v);
+      this.n06xx0.dataW(v);
       return;
     }
     if (addr === 0x7100) {
-      this.io.n06xx0CtrlW(v);
+      this.n06xx0.ctrlW(v);
       return;
     }
     if (addr >= 0x7800 && addr <= 0x7fff) {
@@ -185,11 +201,11 @@ export class BoscoMachine {
       return;
     }
     if (addr >= 0x9000 && addr <= 0x90ff) {
-      this.io.n06xx1DataW(v);
+      this.n06xx1.dataW(v);
       return;
     }
     if (addr === 0x9100) {
-      this.io.n06xx1CtrlW(v);
+      this.n06xx1.ctrlW(v);
       return;
     }
     if (addr >= 0x9800 && addr <= 0x980f) {
@@ -270,7 +286,12 @@ export class BoscoMachine {
         if (id > 0 && !this.subResetLine) continue; // held in reset
         if (ran[id]! < target) {
           if (this.onTrace) this.onTrace(id as CpuId, this.cpus[id]!.pc);
-          ran[id]! += this.cpus[id]!.step();
+          const cycles = this.cpus[id]!.step();
+          ran[id]! += cycles;
+          // 06XX drives /NMI on its controlling CPU to clock read transfers:
+          // _0 -> maincpu (cpu0), _1 -> subcpu (cpu1).
+          if (id === 0 && this.n06xx0.tick(cycles)) this.cpus[0].nmi();
+          if (id === 1 && this.n06xx1.tick(cycles)) this.cpus[1].nmi();
           progress = true;
         }
       }
@@ -286,6 +307,8 @@ export class BoscoMachine {
       // vblank start: level-triggered INT on main/sub when enabled
       if (this.mainIrqMask) this.cpus[0].intLine = true;
       if (this.subIrqMask) this.cpus[1].intLine = true;
+      // 51XX processes coin/credit edges once per frame
+      this.n51xx.vblank();
       // watchdog counts vblanks; 8 misses reset the whole machine
       if (++this.watchdogCounter > 8) {
         this.watchdogFired++;

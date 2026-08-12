@@ -86,4 +86,31 @@ export class Emulator {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
   }
+
+  /** Wire keyboard controls to the machine's input state. */
+  attachKeyboard(target: Window | HTMLElement = window): () => void {
+    const input = this.machine.input;
+    const set = (e: KeyboardEvent, down: boolean): void => {
+      switch (e.code) {
+        case "ArrowUp": case "KeyW": input.p1.up = down; break;
+        case "ArrowDown": case "KeyS": input.p1.down = down; break;
+        case "ArrowLeft": case "KeyA": input.p1.left = down; break;
+        case "ArrowRight": case "KeyD": input.p1.right = down; break;
+        case "Space": case "ControlLeft": input.p1.fire = down; break;
+        case "Digit5": input.coin1 = down; break;
+        case "Digit1": input.start1 = down; break;
+        case "Digit2": input.start2 = down; break;
+        default: return;
+      }
+      e.preventDefault();
+    };
+    const kd = (e: Event): void => set(e as KeyboardEvent, true);
+    const ku = (e: Event): void => set(e as KeyboardEvent, false);
+    target.addEventListener("keydown", kd);
+    target.addEventListener("keyup", ku);
+    return () => {
+      target.removeEventListener("keydown", kd);
+      target.removeEventListener("keyup", ku);
+    };
+  }
 }

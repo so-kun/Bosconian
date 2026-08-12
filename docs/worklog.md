@@ -242,3 +242,33 @@ ROMが揃ったので、静的な逆アセンブル推測より「自作エミ�
 
 - 全49件パス、typecheck/build OK
 - 起動画面PNG（`analysis/boot_f850.png` 等）はローカルのみ（著作物アートワーク）
+
+---
+
+## 2026-08-12 — フェーズ3: カスタムチップ（06XX/51XX）HLE
+
+### 実装（詳細は docs/disassembly/02-custom-chips.md）
+
+- `src/machine/namco06.ts`: 06XXバス（制御レジスタ、読み書きルーティング、
+  読み転送中の制御CPUへのNMIパルス）。MAME namco06.cpp（BSD-3-Clause）準拠
+- `src/machine/namco51.ts`: 51XX I/O・コイン/クレジットのHLE（コマンド仕様準拠）
+- `src/machine/bosco.ts`: 06xx_0/06xx_1/51xx を統合、memRead/memWrite ルーティング、
+  スキャンラインループで06XX NMI生成、vblankで51XXコイン処理
+- `src/emulator.ts` + `main.ts`: キーボード入力（矢印/WASD, Space, 5=コイン, 1/2=スタート）
+
+### 観測: 設定画面の凍結が解消
+
+- 統合前は vram署名が固定（メインループ停止）→ 統合後はフレーム毎に変化（稼働）
+- 両サブCPUが実行され共有RAM/videoramへ書き込み（約6400/60フレーム）
+- vblank IRQ 毎フレーム発火、**コイン投入でクレジット加算（0→1）**
+
+### 残課題（次段）
+
+- 設定画面→アトラクト遷移が未達。有力仮説: サブCPUの自己テストが 06xx_1 の
+  **50XX_2/52XX** 応答を要し、未接続だと自己テストOK署名を出さずメインが待機
+  → 50XX（演算/プロテクト）・52XX（音声）のHLEを 06xx_1 に接続して検証
+- 起動所要フレームの実機/MAME比検証
+
+### テスト
+
+- `tests/customchip.test.ts` 8件追加。全57件パス、typecheck/build OK
