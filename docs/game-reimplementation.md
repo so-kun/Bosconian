@@ -143,6 +143,16 @@ ROMを実行せず、ゲームの挙動を TypeScript で再実装する方針�
   バナー＋音）。得点加算と同フレームの被弾より前に判定（同時死のときは獲得を優先）。
 - ゲームオーバー／リスタート／エクステンドを単体テストで検証。
 
+## 第10段: 敵編隊の隊列飛行（実装済み）
+
+`src/game/enemies.ts` `Squadron`:
+- 状態機械（entering→formation→attacking→dispersing）はそのままに、
+  **5種の隊形**（vee / line / column / diamond / wedge）をseedで選択。
+- リーダー（slot0＝頂点/中心）撃破で残りが離散。
+- **編隊全滅ボーナス**: 1機も逃さず全滅させると +1000＋"FORMATION" バナー＋音。
+  scene が `recordPlayerKill()` / `fullyCleared()` で判定。
+- 隊形選択・全滅判定・line隊形の整列を単体テストで検証。
+
 ## 今後の段階（route c ロードマップ）
 
 1. **自機**: 8方向スプライトの回転対応の精緻化、加減速、画面外スクロール表現

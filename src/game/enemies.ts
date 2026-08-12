@@ -42,15 +42,33 @@ export interface SquadronConfig {
   playfieldW: number; // enemies stay left of the radar strip
 }
 
+export type FormationShape = "vee" | "line" | "column" | "diamond" | "wedge";
+
+const SHAPES: FormationShape[] = ["vee", "line", "column", "diamond", "wedge"];
+
 export class Squadron {
   enemies: Enemy[] = [];
   private cfg: SquadronConfig;
   private center = { x: 0, y: 0 };
   private drift = { x: 0.3, y: 0.2 };
   private formationTimer = 0;
+  shape: FormationShape = "vee";
+  /** How many ships this squadron spawned, and how many the player shot down —
+   *  used by the scene to award a bonus for wiping out a whole formation. */
+  spawnedCount = 0;
+  killedByPlayer = 0;
 
   constructor(cfg: SquadronConfig) {
     this.cfg = cfg;
+  }
+
+  recordPlayerKill(): void {
+    this.killedByPlayer++;
+  }
+
+  /** True once every ship the squadron spawned has been shot down (none escaped). */
+  fullyCleared(): boolean {
+    return this.spawnedCount > 0 && this.killedByPlayer >= this.spawnedCount;
   }
 
   get active(): boolean {
@@ -67,6 +85,9 @@ export class Squadron {
     this.drift.x = ((seed & 2) ? 0.4 : -0.4);
     this.drift.y = ((seed & 4) ? 0.25 : -0.25);
     this.formationTimer = 180 + ((seed * 7) % 120);
+    this.shape = SHAPES[seed % SHAPES.length]!;
+    this.spawnedCount = count;
+    this.killedByPlayer = 0;
 
     this.enemies = [];
     for (let i = 0; i < count; i++) {
@@ -80,11 +101,31 @@ export class Squadron {
     }
   }
 
-  /** Formation slot position relative to the drifting center (a shallow V). */
-  private slotPos(slot: number): { x: number; y: number } {
-    const half = (this.cfg.count - 1) / 2;
+  /** Unit slot offset (in formation cells) for the current shape. Slot 0 is the
+   *  leader (apex / centre). */
+  private slotOffset(slot: number): { x: number; y: number } {
+    const n = this.cfg.count;
+    const half = (n - 1) / 2;
     const off = slot - half;
-    return { x: this.center.x + off * 16, y: this.center.y + Math.abs(off) * 10 };
+    switch (this.shape) {
+      case "line": return { x: off, y: 0 };
+      case "column": return { x: 0, y: off };
+      case "wedge": return { x: off, y: -Math.abs(off) * 0.7 };
+      case "diamond": {
+        if (slot === 0) return { x: 0, y: 0 };
+        const a = ((slot - 1) / Math.max(1, n - 1)) * Math.PI * 2;
+        return { x: Math.cos(a) * 1.3, y: Math.sin(a) * 1.3 };
+      }
+      case "vee":
+      default: return { x: off, y: Math.abs(off) * 0.7 };
+    }
+  }
+
+  /** Formation slot position relative to the drifting centre. */
+  private slotPos(slot: number): { x: number; y: number } {
+    const o = this.slotOffset(slot);
+    const spacing = 16;
+    return { x: this.center.x + o.x * spacing, y: this.center.y + o.y * spacing };
   }
 
   private leaderAlive(): boolean {

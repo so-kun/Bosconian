@@ -309,6 +309,7 @@ export class GameScene {
 
     // player bullets vs enemies (16x16 boxes) — bullets are world-space, so
     // test them in screen space where the enemies live
+    const squadronWasActive = this.squadron.active;
     for (const e of this.squadron.enemies) {
       if (!e.alive) continue;
       for (const b of this.bullets) {
@@ -319,10 +320,17 @@ export class GameScene {
           e.alive = false;
           b.life = 0;
           this.score += e.isLeader ? 200 : 70;
+          this.squadron.recordPlayerKill();
           this.emit("explosion");
           break;
         }
       }
+    }
+    // wiping out an entire formation (none escaped) pays a bonus
+    if (squadronWasActive && !this.squadron.active && this.squadron.fullyCleared()) {
+      this.score += 1000;
+      this.alert.showBanner("FORMATION", [255, 220, 120], 90);
+      this.emit("sectorClear");
     }
     this.bullets = this.bullets.filter((b) => b.life > 0);
 

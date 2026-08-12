@@ -48,6 +48,35 @@ describe("Squadron", () => {
     expect(states.has("entering")).toBe(false);
   });
 
+  it("selects a formation shape by seed", () => {
+    const s = new Squadron(cfg);
+    s.spawn(0); expect(s.shape).toBe("vee");
+    s.spawn(1); expect(s.shape).toBe("line");
+    s.spawn(2); expect(s.shape).toBe("column");
+    s.spawn(3); expect(s.shape).toBe("diamond");
+    s.spawn(4); expect(s.shape).toBe("wedge");
+  });
+
+  it("reports a fully-cleared formation only when every ship is shot", () => {
+    const s = new Squadron(cfg);
+    s.spawn(1);
+    expect(s.fullyCleared()).toBe(false);
+    for (let i = 0; i < cfg.count - 1; i++) s.recordPlayerKill();
+    expect(s.fullyCleared()).toBe(false); // one still unaccounted
+    s.recordPlayerKill();
+    expect(s.fullyCleared()).toBe(true);
+  });
+
+  it("aligns a line formation on a single row once formed", () => {
+    const s = new Squadron(cfg);
+    s.spawn(1); // line
+    for (let i = 0; i < 80; i++) s.update(112, 112);
+    const formed = s.enemies.filter((e) => e.state === "formation");
+    expect(formed.length).toBeGreaterThan(1);
+    const ys = formed.map((e) => Math.round(e.y));
+    expect(Math.max(...ys) - Math.min(...ys)).toBe(0); // same row
+  });
+
   it("disperses survivors when the leader is destroyed", () => {
     const s = new Squadron(cfg);
     s.spawn(4);
