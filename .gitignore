@@ -3,3 +3,10 @@ dist/
 roms/*
 !roms/README.md
 *.log
+
+# Raw disassembly listings are a near-verbatim form of the copyrighted
+# program — kept local for analysis only, never committed. Only derived
+# annotated notes (docs/disassembly/*.md) and original reimplementation
+# code are tracked.
+analysis/
+tests/fixtures/*.com
