@@ -38,7 +38,9 @@ export type SfxEvent =
   | "alertYellow"
   | "alertRed"
   | "sectorClear"
-  | "blastOff";
+  | "blastOff"
+  | "extend"
+  | "gameOver";
 
 interface Bullet {
   x: number;
@@ -100,6 +102,11 @@ export class GameScene {
   mines: Mine[] = [];
   private mineSeed = 1;
 
+  // session state: playing until lives run out, then a restartable game-over
+  state: "playing" | "gameover" = "playing";
+  private nextExtend = 15000; // first bonus ship at 15k, then every 50k
+  private tick = 0; // free-running counter for blink timing
+
   /** Sound-cue queue drained by the runner each frame. */
   readonly sfx: SfxEvent[] = [];
   private emit(ev: SfxEvent): void {
@@ -128,6 +135,31 @@ export class GameScene {
     });
     this.scatterMines();
     this.emit("blastOff"); // launch voice cue on the first drained frame
+  }
+
+  /** Restart a fresh game after game over. */
+  resetGame(): void {
+    this.player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8 };
+    this.headingIndex = 0;
+    this.bullets = [];
+    this.fireCooldown = 0;
+    this.score = 0;
+    this.lives = 3;
+    this.invuln = 0;
+    this.spawnTimer = 90;
+    this.bases = [];
+    this.enemyBullets = [];
+    this.baseTimer = 60;
+    this.alert = new AlertSystem();
+    this.sector = 1;
+    this.basesPerSector = 6;
+    this.basesClearedThisSector = 0;
+    this.mines = [];
+    this.nextExtend = 15000;
+    this.state = "playing";
+    this.squadron = new Squadron({ screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5 });
+    this.scatterMines();
+    this.emit("blastOff");
   }
 
   private spawnBase(): void {
@@ -211,6 +243,15 @@ export class GameScene {
   }
 
   update(c: Controls): void {
+    this.tick++;
+
+    // game over: freeze the field; a fire press starts a fresh game
+    if (this.state === "gameover") {
+      if (c.fire && !this.firePrev) this.resetGame();
+      this.firePrev = c.fire;
+      return;
+    }
+
     const speed = 1.4;
     const x = (c.right ? 1 : 0) - (c.left ? 1 : 0);
     const y = (c.down ? 1 : 0) - (c.up ? 1 : 0);
@@ -340,6 +381,15 @@ export class GameScene {
     }
     this.enemyBullets = this.enemyBullets.filter((eb) => eb.life > 0 && this.onView(eb.x, eb.y));
 
+    // extend: award a bonus ship when crossing each score threshold. Resolved
+    // before the hazard check so a life earned this frame counts before a death.
+    while (this.score >= this.nextExtend) {
+      this.lives++;
+      this.emit("extend");
+      this.alert.showBanner("EXTRA SHIP", [120, 255, 160], 100);
+      this.nextExtend += 50000;
+    }
+
     // hazards vs player (enemies, enemy bullets, base bodies, mines)
     if (this.invuln > 0) this.invuln--;
     else if (this.playerHit(pcx, pcy)) {
@@ -347,6 +397,10 @@ export class GameScene {
       this.emit("playerHit");
       this.invuln = 120;
       this.enemyBullets = [];
+      if (this.lives === 0) {
+        this.state = "gameover";
+        this.emit("gameOver");
+      }
     }
   }
 
@@ -438,6 +492,12 @@ export class GameScene {
     // centre-screen alert callout ("ALERT" / "CONDITION RED" / "SECTOR CLEARED")
     if (this.alert.bannerTimer > 0 && (this.alert.bannerTimer >> 3) & 1) {
       this.drawTextCentered(rgb, this.alert.banner, 96, this.alert.bannerColor);
+    }
+
+    // game-over overlay
+    if (this.state === "gameover") {
+      this.drawTextCentered(rgb, "GAME OVER", 100, [255, 80, 80]);
+      if ((this.tick >> 4) & 1) this.drawTextCentered(rgb, "PRESS FIRE", 120, [220, 220, 220]);
     }
     return rgb;
   }

@@ -47,6 +47,8 @@ export class SoundEngine {
       case "alertRed": this.warble(920, 0.5); this.voice("Condition red"); break;
       case "sectorClear": this.jingle(); this.voice("Sector cleared"); break;
       case "blastOff": this.sweep(200, 900, 0.5, "square"); this.voice("Blast off"); break;
+      case "extend": this.jingle(); this.voice("Extra ship"); break;
+      case "gameOver": this.sweep(600, 80, 1.2, "sawtooth"); this.voice("Game over"); break;
     }
   }
 

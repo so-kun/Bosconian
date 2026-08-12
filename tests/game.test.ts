@@ -182,6 +182,32 @@ describe("GameScene", () => {
     expect(g.sfx).toContain("fire");
   });
 
+  it("awards an extra ship when crossing the extend threshold", () => {
+    const g = new GameScene(assets);
+    const lives = g.lives;
+    g.score = 15000; // first extend at 15k
+    g.update(noControls());
+    expect(g.lives).toBe(lives + 1);
+    expect(g.sfx).toContain("extend");
+  });
+
+  it("ends the game when the last life is lost, and restarts on fire", () => {
+    const g = new GameScene(assets);
+    g.lives = 1;
+    g.mines.push(new Mine(g.player.x + 8, g.player.y + 8)); // fatal contact
+    g.update(noControls());
+    expect(g.lives).toBe(0);
+    expect(g.state).toBe("gameover");
+    expect(g.sfx).toContain("gameOver");
+    // the field is frozen until a fire press restarts a fresh game
+    const c = noControls();
+    c.fire = true;
+    g.update(c);
+    expect(g.state).toBe("playing");
+    expect(g.lives).toBe(3);
+    expect(g.score).toBe(0);
+  });
+
   it("keeps the ship pinned to the view centre after scrolling the world", () => {
     const g = new GameScene(assets);
     const c = noControls();
