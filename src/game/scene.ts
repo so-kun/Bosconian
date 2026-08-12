@@ -9,6 +9,7 @@
 
 import { Starfield } from "../video/starfield";
 import { drawSprite, SCREEN_H, SCREEN_W, type VideoAssets } from "../video/render";
+import { Squadron } from "./enemies";
 
 export interface Controls {
   up: boolean;
@@ -51,9 +52,21 @@ export class GameScene {
   shipColor = 1;
   bulletColor = 1;
 
+  // enemy squadrons (I-type formation fighters)
+  private squadron: Squadron;
+  enemyBaseSprite = 24; // gfx2 I-type fighter, 8 rotations
+  enemyColor = 4;
+  private spawnTimer = 90;
+  private spawnSeed = 1;
+  lives = 3;
+  private invuln = 0;
+
   constructor(private assets: VideoAssets) {
     this.starfield.enable(true);
     this.starfield.setActiveSets(0, 2);
+    this.squadron = new Squadron({
+      screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5,
+    });
   }
 
   private headings(): Heading[] {
@@ -122,6 +135,50 @@ export class GameScene {
     this.bullets = this.bullets.filter(
       (b) => b.life > 0 && b.x >= 0 && b.x < SCREEN_W && b.y >= 0 && b.y < SCREEN_H,
     );
+
+    // enemy squadrons: spawn, update, collisions
+    if (!this.squadron.active) {
+      if (this.spawnTimer > 0) this.spawnTimer--;
+      else {
+        this.squadron.spawn(this.spawnSeed++);
+        this.spawnTimer = 150;
+      }
+    } else {
+      this.squadron.update(this.player.x + 8, this.player.y + 8);
+    }
+
+    // player bullets vs enemies (16x16 boxes)
+    for (const e of this.squadron.enemies) {
+      if (!e.alive) continue;
+      for (const b of this.bullets) {
+        if (b.life <= 0) continue;
+        if (b.x >= e.x && b.x < e.x + 16 && b.y >= e.y && b.y < e.y + 16) {
+          e.alive = false;
+          b.life = 0;
+          this.score += e.isLeader ? 200 : 70;
+          break;
+        }
+      }
+    }
+    this.bullets = this.bullets.filter((b) => b.life > 0);
+
+    // enemy vs player
+    if (this.invuln > 0) this.invuln--;
+    else {
+      for (const e of this.squadron.enemies) {
+        if (!e.alive) continue;
+        if (
+          this.player.x < e.x + 14 && this.player.x + 14 > e.x &&
+          this.player.y < e.y + 14 && this.player.y + 14 > e.y
+        ) {
+          this.lives = Math.max(0, this.lives - 1);
+          this.invuln = 120;
+          this.player.x = (SCREEN_W - 16) / 2;
+          this.player.y = (SCREEN_H - 16) / 2;
+          break;
+        }
+      }
+    }
   }
 
   render(): Uint8Array {
@@ -145,8 +202,20 @@ export class GameScene {
       }
     }
 
-    // player ship
+    // enemies
     if (this.assets.sprites) {
+      for (const e of this.squadron.enemies) {
+        if (!e.alive) continue;
+        drawSprite(
+          rgb, SCREEN_W, SCREEN_H, this.assets.sprites, this.assets.palette,
+          this.enemyBaseSprite + (e.dir & 7), this.enemyColor, false, false,
+          Math.round(e.x), Math.round(e.y),
+        );
+      }
+    }
+
+    // player ship (blink while invulnerable)
+    if (this.assets.sprites && (this.invuln === 0 || (this.invuln >> 2) & 1)) {
       const h = this.headings()[this.headingIndex]!;
       drawSprite(
         rgb, SCREEN_W, SCREEN_H, this.assets.sprites, this.assets.palette,
@@ -154,6 +223,44 @@ export class GameScene {
         Math.round(this.player.x), Math.round(this.player.y),
       );
     }
+
+    // HUD: score + lives, using the ROM character font (gfx1)
+    this.drawText(rgb, `SCORE ${this.score}`, 1, 1);
+    this.drawText(rgb, `SHIPS ${this.lives}`, 1, 2);
     return rgb;
+  }
+
+  /** Draw text with the ROM font. Digits 0-9 -> tile 0..9, A-Z -> tile 10..35. */
+  private drawText(rgb: Uint8Array, text: string, col: number, row: number): void {
+    if (!this.assets.chars.length) return;
+    const pal = this.assets.palette;
+    const color = 3; // a visible char color set
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]!;
+      let code = -1;
+      if (ch >= "0" && ch <= "9") code = ch.charCodeAt(0) - 48;
+      else if (ch >= "A" && ch <= "Z") code = 10 + ch.charCodeAt(0) - 65;
+      else if (ch === " ") continue;
+      if (code < 0) continue;
+      const tile = this.assets.chars[code];
+      if (!tile) continue;
+      const sx = (col + i) * 8;
+      const sy = row * 8;
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          const p = tile[y * 8 + x]!;
+          if (p === 0) continue;
+          const [r, g, b] = pal.colors[pal.charPen[color * 4 + p]!] ?? [255, 255, 255];
+          const px = sx + x;
+          const py = sy + y;
+          if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
+            const o = (py * SCREEN_W + px) * 3;
+            rgb[o] = r;
+            rgb[o + 1] = g;
+            rgb[o + 2] = b;
+          }
+        }
+      }
+    }
   }
 }
