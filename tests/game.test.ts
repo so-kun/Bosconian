@@ -134,4 +134,28 @@ describe("GameScene", () => {
     g.update(noControls());
     expect(g.render().length).toBe(SCREEN_W * SCREEN_H * 3);
   });
+
+  it("raises the alert to YELLOW when firing with a base on the field", () => {
+    const g = new GameScene(assets);
+    // ensure a base exists
+    for (let i = 0; i < 120 && g.bases.length === 0; i++) g.update(noControls());
+    expect(g.bases.length).toBeGreaterThan(0);
+    expect(g.alert.condition).toBe("GREEN");
+    const c = noControls();
+    c.fire = true;
+    g.update(c);
+    expect(g.alert.condition).toBe("YELLOW");
+  });
+
+  it("advances the sector once its base quota is cleared", () => {
+    const g = new GameScene(assets);
+    const quota = g.basesPerSector;
+    const startSector = g.sector;
+    // drive the real base-destroyed handler for a full quota
+    for (let i = 0; i < quota; i++) (g as unknown as { onBaseDestroyed(): void }).onBaseDestroyed();
+    expect(g.sector).toBe(startSector + 1);
+    expect(g.basesClearedThisSector).toBe(0);
+    expect(g.alert.condition).toBe("RED"); // destroying bases scrambles the fleet
+    expect(g.score).toBeGreaterThan(0); // sector-clear bonus
+  });
 });

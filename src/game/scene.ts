@@ -11,6 +11,9 @@ import { Starfield } from "../video/starfield";
 import { drawDot, drawSprite, SCREEN_H, SCREEN_W, type VideoAssets } from "../video/render";
 import { Squadron } from "./enemies";
 import { Base, type EnemyBullet } from "./base";
+import { AlertSystem } from "./alert";
+
+const PLAYFIELD_W = 224; // left playfield width; right strip is the radar
 
 export interface Controls {
   up: boolean;
@@ -67,6 +70,12 @@ export class GameScene {
   enemyBullets: EnemyBullet[] = [];
   private baseTimer = 60;
 
+  // alert condition + sector-clear mission loop
+  alert = new AlertSystem();
+  sector = 1;
+  basesPerSector = 6;
+  basesClearedThisSector = 0;
+
   constructor(private assets: VideoAssets) {
     this.starfield.enable(true);
     this.starfield.setActiveSets(0, 2);
@@ -79,6 +88,22 @@ export class GameScene {
     const px = 40 + Math.random() * (224 - 80);
     const py = 30 + Math.random() * (SCREEN_H - 60);
     this.bases.push(new Base(px, py));
+  }
+
+  /** A base ("spy ship") was destroyed: the fleet scrambles (CONDITION RED)
+   *  and the sector's objective count advances; clearing the quota completes
+   *  the sector. */
+  private onBaseDestroyed(): void {
+    this.alert.raise("RED", 360);
+    if (!this.squadron.active) this.squadron.spawn(this.spawnSeed++); // immediate assault
+    this.basesClearedThisSector++;
+    if (this.basesClearedThisSector >= this.basesPerSector) {
+      this.sector++;
+      this.basesClearedThisSector = 0;
+      this.score += 1000 * (this.sector - 1); // sector-clear bonus
+      this.basesPerSector = Math.min(12, this.basesPerSector + 1); // ramp difficulty
+      this.alert.showBanner("SECTOR CLEARED", [120, 220, 255], 140);
+    }
   }
 
   private headings(): Heading[] {
@@ -114,6 +139,9 @@ export class GameScene {
     const y = (c.down ? 1 : 0) - (c.up ? 1 : 0);
     this.headingIndex = this.inputToHeading(c);
 
+    // alert condition decays / advances its banner each frame
+    this.alert.update();
+
     // move ship (clamped to screen); world-scroll feel via the starfield
     this.player.x = Math.max(0, Math.min(SCREEN_W - 16, this.player.x + x * speed));
     this.player.y = Math.max(0, Math.min(SCREEN_H - 16, this.player.y + y * speed));
@@ -135,6 +163,8 @@ export class GameScene {
         life: 60,
       });
       this.fireCooldown = 8;
+      // firing with a base on the field gets you spotted -> ALERT (yellow)
+      if (this.bases.length > 0) this.alert.raise("YELLOW", 240);
     }
     this.firePrev = c.fire;
 
@@ -153,7 +183,8 @@ export class GameScene {
       if (this.spawnTimer > 0) this.spawnTimer--;
       else {
         this.squadron.spawn(this.spawnSeed++);
-        this.spawnTimer = 150;
+        // higher alert conditions scramble squadrons sooner
+        this.spawnTimer = Math.round(150 / this.alert.aggression());
       }
     } else {
       this.squadron.update(this.player.x + 8, this.player.y + 8);
@@ -185,7 +216,10 @@ export class GameScene {
     }
     const pcx = this.player.x + 8;
     const pcy = this.player.y + 8;
+    const beforeFire = this.enemyBullets.length;
     for (const b of this.bases) b.update(pcx, pcy, this.enemyBullets);
+    // a base opening fire raises the alert to at least YELLOW
+    if (this.enemyBullets.length > beforeFire) this.alert.raise("YELLOW", 240);
 
     // player bullets vs bases
     for (const b of this.bases) {
@@ -195,6 +229,7 @@ export class GameScene {
         if (s > 0) {
           bul.life = 0;
           this.score += s;
+          if (b.destroyed) this.onBaseDestroyed();
         }
       }
     }
@@ -283,9 +318,16 @@ export class GameScene {
     // radar (right strip) — iconic Bosconian scope of the playfield
     this.drawRadar(rgb);
 
-    // HUD: score + lives, using the ROM character font (gfx1)
+    // HUD: score + lives + sector + alert condition, using the ROM font
     this.drawText(rgb, `SCORE ${this.score}`, 1, 1);
     this.drawText(rgb, `SHIPS ${this.lives}`, 1, 2);
+    this.drawText(rgb, `SECTOR ${this.sector}`, 1, 25);
+    this.drawText(rgb, `COND ${this.alert.condition}`, 15, 25, this.alert.color());
+
+    // centre-screen alert callout ("ALERT" / "CONDITION RED" / "SECTOR CLEARED")
+    if (this.alert.bannerTimer > 0 && (this.alert.bannerTimer >> 3) & 1) {
+      this.drawTextCentered(rgb, this.alert.banner, 96, this.alert.bannerColor);
+    }
     return rgb;
   }
 
@@ -327,29 +369,29 @@ export class GameScene {
     put(px(this.player.x + 8), py(this.player.y + 8), [255, 255, 255], 1);
   }
 
-  /** Draw text with the ROM font. Digits 0-9 -> tile 0..9, A-Z -> tile 10..35. */
-  private drawText(rgb: Uint8Array, text: string, col: number, row: number): void {
+  /** Draw text with the ROM font at pixel position (px0, py0). Digits 0-9 ->
+   *  tile 0..9, A-Z -> tile 10..35. An explicit rgb overrides the char pen. */
+  private drawTextPx(rgb: Uint8Array, text: string, px0: number, py0: number, rgbOverride?: [number, number, number]): void {
     if (!this.assets.chars.length) return;
     const pal = this.assets.palette;
     const color = 3; // a visible char color set
+    let cx = px0;
     for (let i = 0; i < text.length; i++) {
       const ch = text[i]!;
+      if (ch === " ") { cx += 8; continue; }
       let code = -1;
       if (ch >= "0" && ch <= "9") code = ch.charCodeAt(0) - 48;
       else if (ch >= "A" && ch <= "Z") code = 10 + ch.charCodeAt(0) - 65;
-      else if (ch === " ") continue;
-      if (code < 0) continue;
+      if (code < 0) { cx += 8; continue; }
       const tile = this.assets.chars[code];
-      if (!tile) continue;
-      const sx = (col + i) * 8;
-      const sy = row * 8;
+      if (!tile) { cx += 8; continue; }
       for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
           const p = tile[y * 8 + x]!;
           if (p === 0) continue;
-          const [r, g, b] = pal.colors[pal.charPen[color * 4 + p]!] ?? [255, 255, 255];
-          const px = sx + x;
-          const py = sy + y;
+          const [r, g, b] = rgbOverride ?? pal.colors[pal.charPen[color * 4 + p]!] ?? [255, 255, 255];
+          const px = cx + x;
+          const py = py0 + y;
           if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
             const o = (py * SCREEN_W + px) * 3;
             rgb[o] = r;
@@ -358,6 +400,18 @@ export class GameScene {
           }
         }
       }
+      cx += 8;
     }
+  }
+
+  /** Tile-grid convenience wrapper (col/row are 8px cells). */
+  private drawText(rgb: Uint8Array, text: string, col: number, row: number, rgbOverride?: [number, number, number]): void {
+    this.drawTextPx(rgb, text, col * 8, row * 8, rgbOverride);
+  }
+
+  /** Horizontally centre text within the playfield (0..PLAYFIELD_W). */
+  private drawTextCentered(rgb: Uint8Array, text: string, py: number, rgbOverride?: [number, number, number]): void {
+    const px0 = Math.round((PLAYFIELD_W - text.length * 8) / 2);
+    this.drawTextPx(rgb, text, px0, py, rgbOverride);
   }
 }
