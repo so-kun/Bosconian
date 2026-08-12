@@ -280,10 +280,51 @@ export class GameScene {
       );
     }
 
+    // radar (right strip) — iconic Bosconian scope of the playfield
+    this.drawRadar(rgb);
+
     // HUD: score + lives, using the ROM character font (gfx1)
     this.drawText(rgb, `SCORE ${this.score}`, 1, 1);
     this.drawText(rgb, `SHIPS ${this.lives}`, 1, 2);
     return rgb;
+  }
+
+  /** Bosconian's right-side radar: a scaled top-down scope of the playfield
+   *  showing the player, bases and enemies as blips. */
+  private drawRadar(rgb: Uint8Array): void {
+    const PF = 224; // playfield extent (world = screen for now)
+    const rx0 = 228;
+    const ry0 = 44;
+    const rw = 56;
+    const rh = 168;
+    const px = (wx: number): number => rx0 + Math.round((wx / PF) * rw);
+    const py = (wy: number): number => ry0 + Math.round((wy / SCREEN_H) * rh);
+    const put = (x: number, y: number, c: [number, number, number], r = 0): void => {
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          const xi = x + dx;
+          const yi = y + dy;
+          if (xi < rx0 - 1 || xi > rx0 + rw + 1 || yi < ry0 - 1 || yi > ry0 + rh + 1) continue;
+          if (xi < 0 || xi >= SCREEN_W || yi < 0 || yi >= SCREEN_H) continue;
+          const o = (yi * SCREEN_W + xi) * 3;
+          rgb[o] = c[0];
+          rgb[o + 1] = c[1];
+          rgb[o + 2] = c[2];
+        }
+    };
+    const frame: [number, number, number] = [40, 120, 40];
+    for (let x = rx0 - 1; x <= rx0 + rw + 1; x++) {
+      put(x, ry0 - 1, frame);
+      put(x, ry0 + rh + 1, frame);
+    }
+    for (let y = ry0 - 1; y <= ry0 + rh + 1; y++) {
+      put(rx0 - 1, y, frame);
+      put(rx0 + rw + 1, y, frame);
+    }
+    // bases (green), enemies (blue), player (white)
+    for (const b of this.bases) if (!b.destroyed) put(px(b.x), py(b.y), [80, 230, 80], 1);
+    for (const e of this.squadron.enemies) if (e.alive) put(px(e.x), py(e.y), [110, 160, 255], 0);
+    put(px(this.player.x + 8), py(this.player.y + 8), [255, 255, 255], 1);
   }
 
   /** Draw text with the ROM font. Digits 0-9 -> tile 0..9, A-Z -> tile 10..35. */
