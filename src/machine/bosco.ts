@@ -276,15 +276,21 @@ export class BoscoMachine {
    * small slices to approximate MAME's 6 kHz quantum. Then advance video
    * timing (vblank IRQ at line 240, CPU3 NMI at lines 64/192, watchdog).
    */
+  /** CPU interleave quantum in cycles (MAME uses ~512 via a 6 kHz quantum). */
+  interleaveQuantum = 512;
+
   runScanline(): void {
     const target = CYCLES_PER_LINE;
     const ran = [0, 0, 0];
+    const q = this.interleaveQuantum;
     let progress = true;
     while (progress) {
       progress = false;
       for (let id = 0 as CpuId; id < 3; id++) {
         if (id > 0 && !this.subResetLine) continue; // held in reset
-        if (ran[id]! < target) {
+        // give this CPU a quantum slice before switching to the next
+        let sliceEnd = Math.min(target, ran[id]! + q);
+        while (ran[id]! < sliceEnd) {
           if (this.onTrace) this.onTrace(id as CpuId, this.cpus[id]!.pc);
           const cycles = this.cpus[id]!.step();
           ran[id]! += cycles;
