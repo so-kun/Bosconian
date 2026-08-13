@@ -82,8 +82,15 @@ describe("GameScene", () => {
     })(),
   };
 
-  it("maps 8-way input to headings", () => {
+  // most gameplay tests want to skip the title screen
+  const startPlaying = (): GameScene => {
     const g = new GameScene(assets);
+    g.state = "playing";
+    return g;
+  };
+
+  it("maps 8-way input to headings", () => {
+    const g = startPlaying();
     const c = noControls();
     c.up = true;
     g.update(c);
@@ -100,7 +107,7 @@ describe("GameScene", () => {
   });
 
   it("keeps the last heading when input is released", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     const c = noControls();
     c.left = true;
     g.update(c);
@@ -110,7 +117,7 @@ describe("GameScene", () => {
   });
 
   it("spawns a bullet on the fire edge and advances it", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     const c = noControls();
     c.fire = true;
     g.update(c);
@@ -122,7 +129,7 @@ describe("GameScene", () => {
   });
 
   it("moves the ship through the wrapping world (position stays in bounds)", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     const c = noControls();
     c.up = true;
     c.left = true;
@@ -140,7 +147,7 @@ describe("GameScene", () => {
   });
 
   it("raises the alert to YELLOW when firing with a base on the field", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     // ensure a base exists
     for (let i = 0; i < 120 && g.bases.length === 0; i++) g.update(noControls());
     expect(g.bases.length).toBeGreaterThan(0);
@@ -164,7 +171,7 @@ describe("GameScene", () => {
   });
 
   it("scatters cosmo-mines and loses a life on contact", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     expect(g.mines.length).toBeGreaterThan(0);
     // drop a mine right on the player and step
     g.mines.push(new Mine(g.player.x + 8, g.player.y + 8));
@@ -173,18 +180,46 @@ describe("GameScene", () => {
     expect(g.lives).toBe(lives - 1);
   });
 
-  it("emits sound cues (blast-off at start, fire on shooting)", () => {
+  it("emits sound cues (blast-off on start, fire on shooting)", () => {
     const g = new GameScene(assets);
-    expect(g.sfx).toContain("blastOff"); // queued in the constructor
-    g.sfx.length = 0;
     const c = noControls();
     c.fire = true;
-    g.update(c);
+    g.update(c); // title -> playing: blast off
+    expect(g.sfx).toContain("blastOff");
+    g.sfx.length = 0;
+    g.update(noControls()); // release fire
+    g.update(c); // fresh fire edge in-game
     expect(g.sfx).toContain("fire");
   });
 
-  it("awards an extra ship when crossing the extend threshold", () => {
+  it("starts on the title screen and begins play on fire", () => {
     const g = new GameScene(assets);
+    expect(g.state).toBe("title");
+    g.update(noControls()); // idle on title
+    expect(g.state).toBe("title");
+    const c = noControls();
+    c.fire = true;
+    g.update(c);
+    expect(g.state).toBe("playing");
+    expect(g.sfx).toContain("blastOff");
+  });
+
+  it("records the high score at game over", () => {
+    const g = new GameScene(assets);
+    const c = noControls();
+    c.fire = true;
+    g.update(c); // -> playing
+    g.highScore = 0;
+    g.score = 5000; // below the 15k extend so the last life still ends the game
+    g.lives = 1;
+    g.mines.push(new Mine(g.player.x + 8, g.player.y + 8));
+    g.update(noControls());
+    expect(g.state).toBe("gameover");
+    expect(g.highScore).toBe(5000);
+  });
+
+  it("awards an extra ship when crossing the extend threshold", () => {
+    const g = startPlaying();
     const lives = g.lives;
     g.score = 15000; // first extend at 15k
     g.update(noControls());
@@ -193,7 +228,7 @@ describe("GameScene", () => {
   });
 
   it("ends the game when the last life is lost, and restarts on fire", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     g.lives = 1;
     g.mines.push(new Mine(g.player.x + 8, g.player.y + 8)); // fatal contact
     g.update(noControls());
@@ -210,7 +245,7 @@ describe("GameScene", () => {
   });
 
   it("keeps the ship pinned to the view centre after scrolling the world", () => {
-    const g = new GameScene(assets);
+    const g = startPlaying();
     const c = noControls();
     c.right = true;
     c.down = true;

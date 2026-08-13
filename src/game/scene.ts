@@ -105,8 +105,9 @@ export class GameScene {
   mines: Mine[] = [];
   private mineSeed = 1;
 
-  // session state: playing until lives run out, then a restartable game-over
-  state: "playing" | "gameover" = "playing";
+  // session state: title -> playing -> gameover (-> title/playing on restart)
+  state: "title" | "playing" | "gameover" = "title";
+  highScore = 20000; // Bosconian's default high-score line
   private nextExtend = 15000; // first bonus ship at 15k, then every 50k
   private tick = 0; // free-running counter for blink timing
 
@@ -137,10 +138,10 @@ export class GameScene {
       screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5,
     });
     this.scatterMines();
-    this.emit("blastOff"); // launch voice cue on the first drained frame
+    // start on the title screen; blast-off plays when the game actually begins
   }
 
-  /** Restart a fresh game after game over. */
+  /** Start (or restart) a fresh game from the title / game-over screen. */
   resetGame(): void {
     this.player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8 };
     this.headingIndex = 0;
@@ -248,8 +249,10 @@ export class GameScene {
   update(c: Controls): void {
     this.tick++;
 
-    // game over: freeze the field; a fire press starts a fresh game
-    if (this.state === "gameover") {
+    // title / game-over: freeze the field; a fire press starts a fresh game.
+    // Drift the starfield so the attract screen isn't static.
+    if (this.state !== "playing") {
+      this.starfield.setScrollSpeed(0, 2);
       if (c.fire && !this.firePrev) this.resetGame();
       this.firePrev = c.fire;
       return;
@@ -410,6 +413,7 @@ export class GameScene {
       this.enemyBullets = [];
       if (this.lives === 0) {
         this.state = "gameover";
+        this.highScore = Math.max(this.highScore, this.score);
         this.emit("gameOver");
       }
     }
@@ -440,6 +444,12 @@ export class GameScene {
   render(): Uint8Array {
     const rgb = new Uint8Array(SCREEN_W * SCREEN_H * 3); // black background
     this.starfield.render(rgb, SCREEN_W, this.assets.palette);
+
+    // title / attract screen: clean starfield + title over the whole frame
+    if (this.state === "title") {
+      this.drawTitle(rgb);
+      return rgb;
+    }
 
     // player bullets: real gfx3 dot shape, bullet colours (world -> screen)
     const pcol = this.assets.palette.colors[31] ?? [255, 255, 255];
@@ -513,6 +523,15 @@ export class GameScene {
     return rgb;
   }
 
+  /** Title / attract screen. */
+  private drawTitle(rgb: Uint8Array): void {
+    this.drawTextCentered(rgb, "BOSCONIAN", 48, [90, 200, 255], 2);
+    this.drawTextCentered(rgb, "BLAST OFF THE SPY BASES", 84, [180, 180, 200]);
+    this.drawTextCentered(rgb, `HIGH SCORE  ${this.highScore}`, 112, [240, 210, 90]);
+    if ((this.tick >> 4) & 1) this.drawTextCentered(rgb, "PRESS FIRE TO START", 150, [255, 255, 255]);
+    this.drawTextCentered(rgb, "ROUTE C REIMPLEMENTATION", 196, [90, 110, 140]);
+  }
+
   /** Bosconian's right-side radar: a top-down scope centred on the ship,
    *  showing nearby world objects (bases, mines, enemies) as blips with the
    *  ship fixed at the centre. Wrap-aware, so it works across the world seam. */
@@ -558,36 +577,40 @@ export class GameScene {
 
   /** Draw text with the ROM font at pixel position (px0, py0). Digits 0-9 ->
    *  tile 0..9, A-Z -> tile 10..35. An explicit rgb overrides the char pen. */
-  private drawTextPx(rgb: Uint8Array, text: string, px0: number, py0: number, rgbOverride?: [number, number, number]): void {
+  private drawTextPx(rgb: Uint8Array, text: string, px0: number, py0: number, rgbOverride?: [number, number, number], scale = 1): void {
     if (!this.assets.chars.length) return;
     const pal = this.assets.palette;
     const color = 3; // a visible char color set
     let cx = px0;
     for (let i = 0; i < text.length; i++) {
       const ch = text[i]!;
-      if (ch === " ") { cx += 8; continue; }
+      if (ch === " ") { cx += 8 * scale; continue; }
       let code = -1;
       if (ch >= "0" && ch <= "9") code = ch.charCodeAt(0) - 48;
       else if (ch >= "A" && ch <= "Z") code = 10 + ch.charCodeAt(0) - 65;
-      if (code < 0) { cx += 8; continue; }
+      if (code < 0) { cx += 8 * scale; continue; }
       const tile = this.assets.chars[code];
-      if (!tile) { cx += 8; continue; }
+      if (!tile) { cx += 8 * scale; continue; }
       for (let y = 0; y < 8; y++) {
         for (let x = 0; x < 8; x++) {
           const p = tile[y * 8 + x]!;
           if (p === 0) continue;
           const [r, g, b] = rgbOverride ?? pal.colors[pal.charPen[color * 4 + p]!] ?? [255, 255, 255];
-          const px = cx + x;
-          const py = py0 + y;
-          if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
-            const o = (py * SCREEN_W + px) * 3;
-            rgb[o] = r;
-            rgb[o + 1] = g;
-            rgb[o + 2] = b;
+          for (let sy = 0; sy < scale; sy++) {
+            for (let sx = 0; sx < scale; sx++) {
+              const px = cx + x * scale + sx;
+              const py = py0 + y * scale + sy;
+              if (px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
+                const o = (py * SCREEN_W + px) * 3;
+                rgb[o] = r;
+                rgb[o + 1] = g;
+                rgb[o + 2] = b;
+              }
+            }
           }
         }
       }
-      cx += 8;
+      cx += 8 * scale;
     }
   }
 
@@ -597,8 +620,8 @@ export class GameScene {
   }
 
   /** Horizontally centre text within the playfield (0..PLAYFIELD_W). */
-  private drawTextCentered(rgb: Uint8Array, text: string, py: number, rgbOverride?: [number, number, number]): void {
-    const px0 = Math.round((PLAYFIELD_W - text.length * 8) / 2);
-    this.drawTextPx(rgb, text, px0, py, rgbOverride);
+  private drawTextCentered(rgb: Uint8Array, text: string, py: number, rgbOverride?: [number, number, number], scale = 1): void {
+    const px0 = Math.round((PLAYFIELD_W - text.length * 8 * scale) / 2);
+    this.drawTextPx(rgb, text, px0, py, rgbOverride, scale);
   }
 }
