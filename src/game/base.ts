@@ -139,6 +139,34 @@ export class Base {
     draw(BASE_BL, 0, 16);
     draw(BASE_BR, 16, 16);
 
+    // Destroyed cannons: knock out their nozzle on the ring so the station
+    // visibly loses a gun each time one is shot (dark crater + a red ember).
+    const plot = (xi: number, yi: number, r: number, g: number, b: number): void => {
+      if (xi < 0 || xi >= width || yi < 0 || yi >= height) return;
+      const o = (yi * width + xi) * 3;
+      rgb[o] = r;
+      rgb[o + 1] = g;
+      rgb[o + 2] = b;
+    };
+    const RING = 13; // nozzle distance from the core (matches the 32x32 sprite)
+    for (const cn of this.cannons) {
+      if (cn.alive) continue;
+      const cxp = Math.round(sx + Math.cos(cn.angle) * RING);
+      const cyp = Math.round(sy + Math.sin(cn.angle) * RING);
+      // dark crater erases the nozzle; a bright ember reads against the green
+      for (let dy = -3; dy <= 3; dy++)
+        for (let dx = -3; dx <= 3; dx++) {
+          const d2 = dx * dx + dy * dy;
+          if (d2 > 9) continue;
+          if (d2 <= 2) {
+            const hot = (this.coreTimer >> 2) & 1;
+            plot(cxp + dx, cyp + dy, hot ? 255 : 200, hot ? 210 : 120, hot ? 80 : 30); // ember
+          } else {
+            plot(cxp + dx, cyp + dy, 8, 8, 12); // crater (near-black)
+          }
+        }
+    }
+
     // Reactor highlight: when the core is vulnerable, pulse a bright pen at the
     // centre so the player can read the shootable window.
     if (this.coreAlive && this.coreVulnerable() && ((this.coreTimer >> 3) & 1)) {

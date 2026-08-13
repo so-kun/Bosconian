@@ -98,6 +98,28 @@ describe("Base", () => {
     b.render(rgb2, SCREEN_W, SCREEN_H, assets);
     expect(rgb2.every((v) => v === 0)).toBe(true);
   });
+
+  it("shows damage where a cannon has been destroyed", () => {
+    const sprites = Array.from({ length: 56 }, (_, i) =>
+      new Uint8Array(256).fill(i >= 52 && i <= 55 ? 1 : 0),
+    );
+    const palette = buildPalette(new Uint8Array(0x260));
+    palette.spritePen[BASE_BANK * 4 + 1] = 1;
+    palette.colors[1] = [0, 200, 0];
+    const assets: VideoAssets = { chars: [], sprites, palette };
+
+    const intact = new Base(100, 100);
+    const damaged = new Base(100, 100);
+    damaged.cannons[0]!.alive = false;
+    const a = new Uint8Array(SCREEN_W * SCREEN_H * 3);
+    const brgb = new Uint8Array(SCREEN_W * SCREEN_H * 3);
+    intact.render(a, SCREEN_W, SCREEN_H, assets);
+    damaged.render(brgb, SCREEN_W, SCREEN_H, assets);
+    // the destroyed-cannon overlay makes the two renders differ
+    let differs = false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== brgb[i]) { differs = true; break; }
+    expect(differs).toBe(true);
+  });
 });
 
 const BASE_BANK = 7;
