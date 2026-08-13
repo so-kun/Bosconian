@@ -75,9 +75,10 @@ export class GameScene {
   /** Base player-ship sprite in gfx2. Bosconian's ship uses several rotation
    *  tiles; we pick a base and derive orientations with flips for now. */
   shipBaseSprite = 0;
-  // sprite colour bank 13 renders the ship white with blue cockpit/engine
-  // accents — the authentic Bosconian fighter (bank 1 was red, incorrect).
-  shipColor = 13;
+  // sprite colour bank 9 = the authentic Bosconian fighter: a white/silver hull
+  // with a red cockpit line and orange accents (row 2, col 2 of the sprite
+  // colour-bank grid; bank 1 was red, bank 13 too blue).
+  shipColor = 9;
   bulletColor = 1;
 
   // enemy squadrons (I-type formation fighters)
