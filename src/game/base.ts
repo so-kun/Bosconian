@@ -1,22 +1,25 @@
-// Enemy base ("spy ship") — original game logic, rendered with the real ROM
-// station graphic.
+// Enemy base ("spy ship") — original game logic + rendering.
 //
-// The Bosconian base is a hexagonal station: six cannons around a central
-// reactor core. It is destroyed by shooting the core (which periodically
-// opens) or by destroying all six cannons; it fires at the player.
+// The Bosconian base is a hexagonal "molecular" station: six green spherical
+// cannon-pods (each with a magenta cap) arranged in a flat-top hexagon around a
+// central green reactor core with a red mouth-bar, joined by green struts. It
+// is destroyed by shooting the core (which periodically opens) or by destroying
+// all six pods; it fires at the player.
 //
-// Rendering uses the real gfx2 sprites: the station body is a 2x2 sprite group
-// (codes 52/53/54/55 = TL/TR/BL/BR) drawn in the green sprite colour bank 7 —
-// the reactor-star core sits where the four quadrants meet. Sprites 52-55 were
-// identified by assembling the gfx2 sprite atlas (see analysis/base_asm.png).
+// The station is drawn to match the arcade reference (green pods + core), with
+// each pod tied to a cannon so pods vanish individually as they are shot. (An
+// earlier version mistakenly used gfx2 sprites 52-55 — those are actually the
+// base *explosion*, not the intact station.)
 
-import { drawSprite, type VideoAssets } from "../video/render";
+import { type VideoAssets } from "../video/render";
 
-const BASE_TL = 52;
-const BASE_TR = 53;
-const BASE_BL = 54;
-const BASE_BR = 55;
-const BASE_COLOR = 7; // green sprite palette bank
+// palette sampled from the arcade base
+const POD_GREEN: [number, number, number] = [64, 200, 72];
+const POD_GREEN_DARK: [number, number, number] = [34, 126, 46];
+const POD_CAP: [number, number, number] = [180, 92, 208];
+const CORE_GREEN: [number, number, number] = [80, 214, 88];
+const CORE_RED: [number, number, number] = [224, 52, 44];
+const STRUT: [number, number, number] = [46, 150, 56];
 
 export interface EnemyBullet {
   x: number;
@@ -49,8 +52,9 @@ export class Base {
   constructor(x: number, y: number) {
     this.x = x;
     this.y = y;
+    // flat-top hexagon: two pods up, two down, one each side (matches arcade)
     for (let i = 0; i < CANNON_COUNT; i++) {
-      this.cannons.push({ angle: (i / CANNON_COUNT) * Math.PI * 2 - Math.PI / 2, alive: true });
+      this.cannons.push({ angle: (i / CANNON_COUNT) * Math.PI * 2 - Math.PI / 3, alive: true });
     }
   }
 
@@ -126,63 +130,72 @@ export class Base {
 
   /** Draw the station centred on the given screen position (sx, sy). In the
    *  wrapping world the scene supplies the on-screen centre; default to the
-   *  object's own coordinates so callers/tests can treat them as screen space. */
-  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets, sx = this.x, sy = this.y): void {
-    if (this.destroyed || !assets.sprites) return;
-    // 2x2 real station sprite group, centred on (sx, sy).
-    const left = Math.round(sx) - 16;
-    const top = Math.round(sy) - 16;
-    const draw = (code: number, ox: number, oy: number): void =>
-      drawSprite(rgb, width, height, assets.sprites!, assets.palette, code, BASE_COLOR, false, false, left + ox, top + oy);
-    draw(BASE_TL, 0, 0);
-    draw(BASE_TR, 16, 0);
-    draw(BASE_BL, 0, 16);
-    draw(BASE_BR, 16, 16);
-
-    // Destroyed cannons: knock out their nozzle on the ring so the station
-    // visibly loses a gun each time one is shot (dark crater + a red ember).
-    const plot = (xi: number, yi: number, r: number, g: number, b: number): void => {
+   *  object's own coordinates so callers/tests can treat them as screen space.
+   *  Rendered procedurally to match the arcade base (assets currently unused). */
+  render(rgb: Uint8Array, width: number, height: number, _assets: VideoAssets, sx = this.x, sy = this.y): void {
+    if (this.destroyed) return;
+    const cx = Math.round(sx);
+    const cy = Math.round(sy);
+    const plot = (xi: number, yi: number, c: [number, number, number]): void => {
+      xi = Math.round(xi); yi = Math.round(yi);
       if (xi < 0 || xi >= width || yi < 0 || yi >= height) return;
       const o = (yi * width + xi) * 3;
-      rgb[o] = r;
-      rgb[o + 1] = g;
-      rgb[o + 2] = b;
+      rgb[o] = c[0]; rgb[o + 1] = c[1]; rgb[o + 2] = c[2];
     };
-    const RING = 13; // nozzle distance from the core (matches the 32x32 sprite)
-    for (const cn of this.cannons) {
-      if (cn.alive) continue;
-      const cxp = Math.round(sx + Math.cos(cn.angle) * RING);
-      const cyp = Math.round(sy + Math.sin(cn.angle) * RING);
-      // dark crater erases the nozzle; a bright ember reads against the green
-      for (let dy = -3; dy <= 3; dy++)
-        for (let dx = -3; dx <= 3; dx++) {
-          const d2 = dx * dx + dy * dy;
-          if (d2 > 9) continue;
-          if (d2 <= 2) {
-            const hot = (this.coreTimer >> 2) & 1;
-            plot(cxp + dx, cyp + dy, hot ? 255 : 200, hot ? 210 : 120, hot ? 80 : 30); // ember
-          } else {
-            plot(cxp + dx, cyp + dy, 8, 8, 12); // crater (near-black)
-          }
-        }
+    const line = (x0: number, y0: number, x1: number, y1: number, c: [number, number, number], thick = 1): void => {
+      const steps = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0)));
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
+        for (let oy = 0; oy < thick; oy++) for (let ox = 0; ox < thick; ox++) plot(px + ox, py + oy, c);
+      }
+    };
+    const podPos = (a: number): [number, number] => [cx + Math.cos(a) * RADIUS, cy + Math.sin(a) * RADIUS];
+
+    // 1) struts: hexagon ring between adjacent live pods + spokes to the core
+    for (let i = 0; i < CANNON_COUNT; i++) {
+      const a = this.cannons[i]!, b = this.cannons[(i + 1) % CANNON_COUNT]!;
+      const pa = podPos(a.angle), pb = podPos(b.angle);
+      if (a.alive && b.alive) line(pa[0], pa[1], pb[0], pb[1], STRUT, 2);
+      if (a.alive) line(cx, cy, pa[0], pa[1], STRUT, 1);
     }
 
-    // Reactor highlight: when the core is vulnerable, pulse a bright pen at the
-    // centre so the player can read the shootable window.
-    if (this.coreAlive && this.coreVulnerable() && ((this.coreTimer >> 3) & 1)) {
-      const cx = Math.round(sx);
-      const cy = Math.round(sy);
-      for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++) {
-          if (dx * dx + dy * dy > 5) continue;
-          const xi = cx + dx;
-          const yi = cy + dy;
-          if (xi < 0 || xi >= width || yi < 0 || yi >= height) continue;
-          const o = (yi * width + xi) * 3;
-          rgb[o] = 255;
-          rgb[o + 1] = 255;
-          rgb[o + 2] = 200;
-        }
+    // 2) reactor core: green disc + a red mouth-bar (brighter/open when vulnerable)
+    const open = this.coreAlive && this.coreVulnerable();
+    for (let dy = -CORE_R; dy <= CORE_R; dy++)
+      for (let dx = -CORE_R; dx <= CORE_R; dx++) {
+        if (dx * dx + dy * dy > CORE_R * CORE_R) continue;
+        plot(cx + dx, cy + dy, CORE_GREEN);
+      }
+    if (this.coreAlive) {
+      const barH = open && ((this.coreTimer >> 3) & 1) ? 2 : 1;
+      const red: [number, number, number] = open ? [255, 90, 70] : CORE_RED;
+      for (let dy = -barH; dy <= barH; dy++)
+        for (let dx = -CORE_R; dx <= CORE_R; dx++)
+          if (dx * dx <= (CORE_R - 1) * (CORE_R - 1)) plot(cx + dx, cy + dy, red);
+    }
+
+    // 3) the six cannon-pods: green sphere + magenta cap; destroyed ones vanish
+    //    leaving a dark crater with a flickering ember
+    for (const cn of this.cannons) {
+      const [pxc, pyc] = podPos(cn.angle);
+      const pr = 6;
+      if (cn.alive) {
+        for (let dy = -pr; dy <= pr; dy++)
+          for (let dx = -pr; dx <= pr; dx++) {
+            if (dx * dx + dy * dy > pr * pr) continue;
+            const col = dy < -2 ? POD_CAP : dy > 2 ? POD_GREEN_DARK : POD_GREEN;
+            plot(pxc + dx, pyc + dy, col);
+          }
+      } else {
+        const hot = (this.coreTimer >> 2) & 1;
+        for (let dy = -3; dy <= 3; dy++)
+          for (let dx = -3; dx <= 3; dx++) {
+            const d2 = dx * dx + dy * dy;
+            if (d2 > 9) continue;
+            plot(pxc + dx, pyc + dy, d2 <= 2 ? (hot ? [255, 210, 80] : [200, 120, 30]) : [10, 10, 14]);
+          }
+      }
     }
   }
 }
