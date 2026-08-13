@@ -176,6 +176,21 @@ describe("GameScene", () => {
     expect(g.alert.condition).toBe("YELLOW");
   });
 
+  it("has attacking enemies fire at the ship", () => {
+    const g = startPlaying();
+    const sq = (g as unknown as { squadron: { spawn(s: number): void; enemies: { alive: boolean; state: string; t: number; x: number; y: number }[] } }).squadron;
+    sq.spawn(1);
+    let fired = false;
+    for (let i = 0; i < 500 && !fired; i++) {
+      g.bases = []; // isolate from base fire
+      for (const e of sq.enemies) { e.alive = true; e.state = "attacking"; e.t = 0; e.x = 70; e.y = 70; }
+      const before = g.enemyBullets.length;
+      g.update(noControls());
+      if (g.enemyBullets.length > before) fired = true;
+    }
+    expect(fired).toBe(true);
+  });
+
   it("advances the sector once its base quota is cleared", () => {
     const g = new GameScene(assets);
     const quota = g.basesPerSector;

@@ -323,6 +323,25 @@ export class GameScene {
       this.squadron.update(VIEW_CX, VIEW_CY);
     }
 
+    // attacking enemies fire at the ship. Enemies live in screen space but the
+    // ship is pinned to the view centre, so an enemy's screen offset from the
+    // centre equals its world offset from the ship — convert and shoot a
+    // world-space bullet toward the ship (same pipeline as base fire).
+    {
+      const pwx = this.player.x + 8, pwy = this.player.y + 8;
+      const rate = 0.014 * this.alert.aggression();
+      for (const e of this.squadron.enemies) {
+        if (!e.alive || e.state !== "attacking") continue;
+        if (Math.random() >= rate) continue;
+        const ewx = pwx + (e.x + 8 - VIEW_CX);
+        const ewy = pwy + (e.y + 8 - VIEW_CY);
+        const dx = pwx - ewx, dy = pwy - ewy;
+        const len = Math.hypot(dx, dy) || 1;
+        const spd = 1.7;
+        this.enemyBullets.push({ x: ewx, y: ewy, dx: (dx / len) * spd, dy: (dy / len) * spd, life: 220 });
+      }
+    }
+
     // player bullets vs enemies (16x16 boxes) — bullets are world-space, so
     // test them in screen space where the enemies live
     const squadronWasActive = this.squadron.active;
