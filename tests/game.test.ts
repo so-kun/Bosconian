@@ -75,7 +75,8 @@ describe("GameScene", () => {
     sprites: Array.from({ length: 8 }, () => new Uint8Array(256).fill(1)),
     palette: (() => {
       const p = buildPalette(new Uint8Array(0x260));
-      for (let i = 0; i < 16; i++) p.spritePen[i] = 1; // visible, non-transparent
+      // make every sprite pen visible/non-transparent so any colour bank draws
+      for (let i = 0; i < p.spritePen.length; i++) p.spritePen[i] = 1;
       p.colors[1] = [255, 255, 255];
       return p;
     })(),
