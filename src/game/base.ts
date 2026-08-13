@@ -1,25 +1,23 @@
-// Enemy base ("spy ship") — original game logic + rendering.
+// Enemy base ("spy ship") — original game logic, drawn with the REAL ROM
+// graphics.
 //
-// The Bosconian base is a hexagonal "molecular" station: six green spherical
-// cannon-pods (each with a magenta cap) arranged in a flat-top hexagon around a
-// central green reactor core with a red mouth-bar, joined by green struts. It
-// is destroyed by shooting the core (which periodically opens) or by destroying
-// all six pods; it fires at the player.
+// The Bosconian base is a hexagonal "molecular" station: six spherical
+// cannon-pods around a central reactor core, joined by struts. It is destroyed
+// by shooting the core (which periodically opens) or by destroying all six
+// pods; it fires at the player.
 //
-// The station is drawn to match the arcade reference (green pods + core), with
-// each pod tied to a cannon so pods vanish individually as they are shot. (An
-// earlier version mistakenly used gfx2 sprites 52-55 — those are actually the
-// base *explosion*, not the intact station.)
+// The artwork is not hand-drawn: src/game/baseGfx.ts holds the exact tile codes
+// and colour attributes the game's own base-draw routine (sub CPU 0x03d6)
+// writes into the tilemap, captured by executing that routine directly in the
+// Z80 core. Tiles come from gfx1 and colours from the real colour PROM, so what
+// is drawn here is what the hardware draws.
+//
+// (Two earlier attempts were wrong and are recorded for honesty: gfx2 sprites
+// 52-55 are the base *explosion*, and the later procedural pod drawing was a
+// hand-drawn approximation.)
 
 import { type VideoAssets } from "../video/render";
-
-// palette sampled from the arcade base
-const POD_GREEN: [number, number, number] = [64, 200, 72];
-const POD_GREEN_DARK: [number, number, number] = [34, 126, 46];
-const POD_CAP: [number, number, number] = [180, 92, 208];
-const CORE_GREEN: [number, number, number] = [80, 214, 88];
-const CORE_RED: [number, number, number] = [224, 52, 44];
-const STRUT: [number, number, number] = [46, 150, 56];
+import { BASE_BLANK_TILE, BASE_COLS, BASE_ROWS, BASE_TYPE_A, type BaseGfx } from "./baseGfx";
 
 export interface EnemyBullet {
   x: number;
@@ -48,10 +46,13 @@ export class Base {
   destroyed = false;
   private coreTimer = 0;
   private fireTimer = 60;
+  /** Which real ROM station graphic this base uses. */
+  gfx: BaseGfx = BASE_TYPE_A;
 
-  constructor(x: number, y: number) {
+  constructor(x: number, y: number, gfx: BaseGfx = BASE_TYPE_A) {
     this.x = x;
     this.y = y;
+    this.gfx = gfx;
     // flat-top hexagon: two pods up, two down, one each side (matches arcade)
     for (let i = 0; i < CANNON_COUNT; i++) {
       this.cannons.push({ angle: (i / CANNON_COUNT) * Math.PI * 2 - Math.PI / 3, alive: true });
@@ -131,69 +132,72 @@ export class Base {
   /** Draw the station centred on the given screen position (sx, sy). In the
    *  wrapping world the scene supplies the on-screen centre; default to the
    *  object's own coordinates so callers/tests can treat them as screen space.
-   *  Rendered procedurally to match the arcade base (assets currently unused). */
-  render(rgb: Uint8Array, width: number, height: number, _assets: VideoAssets, sx = this.x, sy = this.y): void {
-    if (this.destroyed) return;
-    const cx = Math.round(sx);
-    const cy = Math.round(sy);
-    const plot = (xi: number, yi: number, c: [number, number, number]): void => {
-      xi = Math.round(xi); yi = Math.round(yi);
-      if (xi < 0 || xi >= width || yi < 0 || yi >= height) return;
-      const o = (yi * width + xi) * 3;
-      rgb[o] = c[0]; rgb[o + 1] = c[1]; rgb[o + 2] = c[2];
-    };
-    const line = (x0: number, y0: number, x1: number, y1: number, c: [number, number, number], thick = 1): void => {
-      const steps = Math.max(1, Math.round(Math.hypot(x1 - x0, y1 - y0)));
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        const px = x0 + (x1 - x0) * t, py = y0 + (y1 - y0) * t;
-        for (let oy = 0; oy < thick; oy++) for (let ox = 0; ox < thick; ox++) plot(px + ox, py + oy, c);
-      }
-    };
-    const podPos = (a: number): [number, number] => [cx + Math.cos(a) * RADIUS, cy + Math.sin(a) * RADIUS];
+   *
+   *  Draws the real ROM tile grid (see baseGfx.ts): 8x8 tiles of 8x8 px through
+   *  the real character palette. A destroyed cannon blanks the tiles of its pod
+   *  quadrant and leaves a flickering ember, so the station visibly loses a gun.
+   */
+  render(rgb: Uint8Array, width: number, height: number, assets: VideoAssets, sx = this.x, sy = this.y): void {
+    if (this.destroyed || !assets.chars.length) return;
+    const gfx: BaseGfx = this.gfx;
+    const pal = assets.palette;
+    const left = Math.round(sx) - (BASE_COLS * 8) / 2;
+    const top = Math.round(sy) - (BASE_ROWS * 8) / 2;
 
-    // 1) struts: hexagon ring between adjacent live pods + spokes to the core
-    for (let i = 0; i < CANNON_COUNT; i++) {
-      const a = this.cannons[i]!, b = this.cannons[(i + 1) % CANNON_COUNT]!;
-      const pa = podPos(a.angle), pb = podPos(b.angle);
-      if (a.alive && b.alive) line(pa[0], pa[1], pb[0], pb[1], STRUT, 2);
-      if (a.alive) line(cx, cy, pa[0], pa[1], STRUT, 1);
-    }
-
-    // 2) reactor core: green disc + a red mouth-bar (brighter/open when vulnerable)
-    const open = this.coreAlive && this.coreVulnerable();
-    for (let dy = -CORE_R; dy <= CORE_R; dy++)
-      for (let dx = -CORE_R; dx <= CORE_R; dx++) {
-        if (dx * dx + dy * dy > CORE_R * CORE_R) continue;
-        plot(cx + dx, cy + dy, CORE_GREEN);
-      }
-    if (this.coreAlive) {
-      const barH = open && ((this.coreTimer >> 3) & 1) ? 2 : 1;
-      const red: [number, number, number] = open ? [255, 90, 70] : CORE_RED;
-      for (let dy = -barH; dy <= barH; dy++)
-        for (let dx = -CORE_R; dx <= CORE_R; dx++)
-          if (dx * dx <= (CORE_R - 1) * (CORE_R - 1)) plot(cx + dx, cy + dy, red);
-    }
-
-    // 3) the six cannon-pods: green sphere + magenta cap; destroyed ones vanish
-    //    leaving a dark crater with a flickering ember
+    // which pods are gone -> blank the tiles nearest that pod
+    const deadCentres: [number, number][] = [];
     for (const cn of this.cannons) {
-      const [pxc, pyc] = podPos(cn.angle);
-      const pr = 6;
-      if (cn.alive) {
-        for (let dy = -pr; dy <= pr; dy++)
-          for (let dx = -pr; dx <= pr; dx++) {
-            if (dx * dx + dy * dy > pr * pr) continue;
-            const col = dy < -2 ? POD_CAP : dy > 2 ? POD_GREEN_DARK : POD_GREEN;
-            plot(pxc + dx, pyc + dy, col);
+      if (cn.alive) continue;
+      deadCentres.push([
+        (BASE_COLS * 8) / 2 + Math.cos(cn.angle) * RADIUS,
+        (BASE_ROWS * 8) / 2 + Math.sin(cn.angle) * RADIUS,
+      ]);
+    }
+
+    for (let r = 0; r < BASE_ROWS; r++) {
+      for (let c = 0; c < BASE_COLS; c++) {
+        const idx = r * BASE_COLS + c;
+        const code = gfx.codes[idx]!;
+        if (code === BASE_BLANK_TILE) continue;
+        // skip tiles belonging to a destroyed pod
+        const tcx = c * 8 + 4, tcy = r * 8 + 4;
+        let dead = false;
+        for (const [dx0, dy0] of deadCentres) {
+          if (Math.hypot(tcx - dx0, tcy - dy0) < 10) { dead = true; break; }
+        }
+        if (dead) continue;
+        const tile = assets.chars[code];
+        if (!tile) continue;
+        const attr = gfx.attrs[idx]!;
+        const base = (attr & 0x3f) * 4;
+        const fx = (attr >> 6) & 1, fy = (attr >> 7) & 1;
+        for (let y = 0; y < 8; y++) {
+          const py = top + r * 8 + y;
+          if (py < 0 || py >= height) continue;
+          for (let x = 0; x < 8; x++) {
+            const px = left + c * 8 + x;
+            if (px < 0 || px >= width) continue;
+            const p = tile[(fy ? 7 - y : y) * 8 + (fx ? 7 - x : x)]!;
+            if (p === 0) continue; // transparent
+            const col = pal.colors[pal.charPen[base + p]!];
+            if (!col) continue;
+            const o = (py * width + px) * 3;
+            rgb[o] = col[0]; rgb[o + 1] = col[1]; rgb[o + 2] = col[2];
           }
-      } else {
-        const hot = (this.coreTimer >> 2) & 1;
-        for (let dy = -3; dy <= 3; dy++)
-          for (let dx = -3; dx <= 3; dx++) {
-            const d2 = dx * dx + dy * dy;
-            if (d2 > 9) continue;
-            plot(pxc + dx, pyc + dy, d2 <= 2 ? (hot ? [255, 210, 80] : [200, 120, 30]) : [10, 10, 14]);
+        }
+      }
+    }
+
+    // embers where pods were destroyed
+    if ((this.coreTimer >> 2) & 1) {
+      for (const [dx0, dy0] of deadCentres) {
+        const ex = Math.round(left + dx0), ey = Math.round(top + dy0);
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const xi = ex + dx, yi = ey + dy;
+            if (xi < 0 || xi >= width || yi < 0 || yi >= height) continue;
+            const o = (yi * width + xi) * 3;
+            rgb[o] = 255; rgb[o + 1] = 200; rgb[o + 2] = 60;
           }
       }
     }

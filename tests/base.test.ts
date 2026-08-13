@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { Base, type EnemyBullet } from "../src/game/base";
 import { buildPalette } from "../src/video/palette";
+import { BASE_TYPE_A } from "../src/game/baseGfx";
 import { SCREEN_H, SCREEN_W, type VideoAssets } from "../src/video/render";
 
 const RADIUS = 18;
@@ -75,23 +76,22 @@ describe("Base", () => {
     expect(b.overlaps(100, 100 + RADIUS + 40, 7)).toBe(false);
   });
 
-  it("renders the real station sprite group (52-55) centred on the base", () => {
-    // assets with all 56 sprite slots present; codes 52-55 are opaque
-    const sprites = Array.from({ length: 56 }, (_, i) =>
-      new Uint8Array(256).fill(i >= 52 && i <= 55 ? 1 : 0),
-    );
+  it("renders the real ROM station tiles centred on the base", () => {
+    // mock gfx1: every tile fully opaque with pen 1
+    const chars = Array.from({ length: 256 }, () => new Uint8Array(64).fill(1));
     const palette = buildPalette(new Uint8Array(0x260));
-    palette.spritePen[BASE_BANK * 4 + 1] = 1; // opaque pen
+    for (let i = 0; i < palette.charPen.length; i++) palette.charPen[i] = 1;
     palette.colors[1] = [0, 200, 0];
-    const assets: VideoAssets = { chars: [], sprites, palette };
+    const assets: VideoAssets = { chars, sprites: [], palette };
 
     const rgb = new Uint8Array(SCREEN_W * SCREEN_H * 3);
     const b = new Base(100, 100);
     b.render(rgb, SCREEN_W, SCREEN_H, assets);
 
-    // the 32x32 group is centred on (100,100); its interior should be painted
+    // the 64x64 tile grid is centred on (100,100); its interior is painted
     const o = (100 * SCREEN_W + 100) * 3;
     expect(rgb[o + 1]).toBeGreaterThan(0);
+
     // a destroyed base draws nothing
     const rgb2 = new Uint8Array(SCREEN_W * SCREEN_H * 3);
     b.destroyed = true;
@@ -99,27 +99,32 @@ describe("Base", () => {
     expect(rgb2.every((v) => v === 0)).toBe(true);
   });
 
-  it("shows damage where a cannon has been destroyed", () => {
-    const sprites = Array.from({ length: 56 }, (_, i) =>
-      new Uint8Array(256).fill(i >= 52 && i <= 55 ? 1 : 0),
-    );
+  it("uses real ROM tile data (not a hand-drawn shape)", () => {
+    // the layout must be the captured ROM grid: 8x8 cells, blanks marked 0x24,
+    // and the red core tiles (0xf3) present in the middle rows
+    expect(BASE_TYPE_A.codes.length).toBe(64);
+    expect(BASE_TYPE_A.attrs.length).toBe(64);
+    expect(BASE_TYPE_A.codes).toContain(0xf3); // core
+    expect(BASE_TYPE_A.codes.filter((c) => c >= 0xc0 && c <= 0xcf).length).toBeGreaterThan(20); // pods
+    expect(BASE_TYPE_A.codes).toContain(0x24); // blanks
+  });
+
+  it("blanks a pod where its cannon has been destroyed", () => {
+    const chars = Array.from({ length: 256 }, () => new Uint8Array(64).fill(1));
     const palette = buildPalette(new Uint8Array(0x260));
-    palette.spritePen[BASE_BANK * 4 + 1] = 1;
+    for (let i = 0; i < palette.charPen.length; i++) palette.charPen[i] = 1;
     palette.colors[1] = [0, 200, 0];
-    const assets: VideoAssets = { chars: [], sprites, palette };
+    const assets: VideoAssets = { chars, sprites: [], palette };
 
     const intact = new Base(100, 100);
     const damaged = new Base(100, 100);
     damaged.cannons[0]!.alive = false;
     const a = new Uint8Array(SCREEN_W * SCREEN_H * 3);
-    const brgb = new Uint8Array(SCREEN_W * SCREEN_H * 3);
+    const d = new Uint8Array(SCREEN_W * SCREEN_H * 3);
     intact.render(a, SCREEN_W, SCREEN_H, assets);
-    damaged.render(brgb, SCREEN_W, SCREEN_H, assets);
-    // the destroyed-cannon overlay makes the two renders differ
+    damaged.render(d, SCREEN_W, SCREEN_H, assets);
     let differs = false;
-    for (let i = 0; i < a.length; i++) if (a[i] !== brgb[i]) { differs = true; break; }
+    for (let i = 0; i < a.length; i++) if (a[i] !== d[i]) { differs = true; break; }
     expect(differs).toBe(true);
   });
 });
-
-const BASE_BANK = 7;
