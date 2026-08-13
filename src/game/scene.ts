@@ -70,6 +70,7 @@ export class GameScene {
   headingIndex = 0; // 0 = up
   bullets: Bullet[] = [];
   private firePrev = false;
+  private startFirePrev = false; // fire-edge for the title/game-over "start" prompt
   private fireCooldown = 0;
   score = 0;
 
@@ -146,6 +147,7 @@ export class GameScene {
   resetGame(): void {
     this.player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8, vx: 0, vy: 0 };
     this.headingIndex = 0;
+    this.firePrev = false;
     this.bullets = [];
     this.fireCooldown = 0;
     this.score = 0;
@@ -165,6 +167,32 @@ export class GameScene {
     this.squadron = new Squadron({ screenW: SCREEN_W, screenH: SCREEN_H, playfieldW: 224, count: 5 });
     this.scatterMines();
     this.emit("blastOff");
+  }
+
+  /** Attract-mode autopilot: steer toward the nearest base (wrap-aware) and
+   *  fire in bursts; wander when no base is in sight. */
+  private demoControls(): Controls {
+    const c: Controls = { up: false, down: false, left: false, right: false, fire: false };
+    const pcx = this.player.x + 8, pcy = this.player.y + 8;
+    let tx: number, ty: number;
+    let best: Base | null = null, bestD = Infinity;
+    for (const b of this.bases) {
+      const d = wrapDist(b.x, b.y, pcx, pcy);
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    if (best) {
+      tx = wrapDelta(best.x - pcx, WORLD_W);
+      ty = wrapDelta(best.y - pcy, WORLD_H);
+      // stand off a little so it strafes the base rather than colliding
+      if (bestD < 40) { tx = -tx; ty = -ty; }
+    } else {
+      tx = Math.cos(this.tick * 0.02) * 50;
+      ty = Math.sin(this.tick * 0.017) * 50;
+    }
+    if (tx > 8) c.right = true; else if (tx < -8) c.left = true;
+    if (ty > 8) c.down = true; else if (ty < -8) c.up = true;
+    c.fire = this.tick % 9 < 3; // fire in short bursts (edge-detected downstream)
+    return c;
   }
 
   private spawnBase(): void {
@@ -249,16 +277,27 @@ export class GameScene {
 
   update(c: Controls): void {
     this.tick++;
-
-    // title / game-over: freeze the field; a fire press starts a fresh game.
-    // Drift the starfield so the attract screen isn't static.
-    if (this.state !== "playing") {
-      this.starfield.setScrollSpeed(0, 2);
-      if (c.fire && !this.firePrev) this.resetGame();
-      this.firePrev = c.fire;
+    if (this.state === "title") {
+      // a real fire press launches the game; otherwise the attract demo plays
+      // live behind the title using AI-generated controls.
+      if (c.fire && !this.startFirePrev) { this.startFirePrev = true; this.resetGame(); return; }
+      this.startFirePrev = c.fire;
+      this.stepGameplay(this.demoControls());
       return;
     }
+    if (this.state === "gameover") {
+      this.starfield.setScrollSpeed(0, 2);
+      if (c.fire && !this.startFirePrev) { this.startFirePrev = true; this.resetGame(); return; }
+      this.startFirePrev = c.fire;
+      return;
+    }
+    this.startFirePrev = c.fire;
+    this.stepGameplay(c);
+  }
 
+  /** One frame of live gameplay — driven by the player when playing, or by the
+   *  demo AI on the attract screen. */
+  private stepGameplay(c: Controls): void {
     const MAX_SPEED = 1.9;
     const RESPONSE = 0.14; // how quickly velocity chases the target (inertia feel)
     const x = (c.right ? 1 : 0) - (c.left ? 1 : 0);
@@ -436,14 +475,17 @@ export class GameScene {
     // hazards vs player (enemies, enemy bullets, base bodies, mines)
     if (this.invuln > 0) this.invuln--;
     else if (this.playerHit(pcx, pcy)) {
-      this.lives = Math.max(0, this.lives - 1);
       this.emit("playerHit");
       this.invuln = 120;
       this.enemyBullets = [];
-      if (this.lives === 0) {
-        this.state = "gameover";
-        this.highScore = Math.max(this.highScore, this.score);
-        this.emit("gameOver");
+      // the attract demo (title state) is immortal — only real play loses lives
+      if (this.state === "playing") {
+        this.lives = Math.max(0, this.lives - 1);
+        if (this.lives === 0) {
+          this.state = "gameover";
+          this.highScore = Math.max(this.highScore, this.score);
+          this.emit("gameOver");
+        }
       }
     }
   }
@@ -473,12 +515,6 @@ export class GameScene {
   render(): Uint8Array {
     const rgb = new Uint8Array(SCREEN_W * SCREEN_H * 3); // black background
     this.starfield.render(rgb, SCREEN_W, this.assets.palette);
-
-    // title / attract screen: clean starfield + title over the whole frame
-    if (this.state === "title") {
-      this.drawTitle(rgb);
-      return rgb;
-    }
 
     // player bullets: real gfx3 dot shape, bullet colours (world -> screen)
     const pcol = this.assets.palette.colors[31] ?? [255, 255, 255];
@@ -530,8 +566,22 @@ export class GameScene {
       );
     }
 
+    // clear the right strip so no playfield sprite bleeds past the playfield
+    // edge into the radar, then draw the radar over it
+    for (let y = 0; y < SCREEN_H; y++)
+      for (let x = PLAYFIELD_W; x < SCREEN_W; x++) {
+        const o = (y * SCREEN_W + x) * 3;
+        rgb[o] = 0; rgb[o + 1] = 0; rgb[o + 2] = 0;
+      }
+
     // radar (right strip) — iconic Bosconian scope of the playfield
     this.drawRadar(rgb);
+
+    // title screen shows the live demo behind a compact title overlay
+    if (this.state === "title") {
+      this.drawTitle(rgb);
+      return rgb;
+    }
 
     // HUD: score + lives + sector + alert condition, using the ROM font
     this.drawText(rgb, `SCORE ${this.score}`, 1, 1);
@@ -554,11 +604,10 @@ export class GameScene {
 
   /** Title / attract screen. */
   private drawTitle(rgb: Uint8Array): void {
-    this.drawTextCentered(rgb, "BOSCONIAN", 48, [90, 200, 255], 2);
-    this.drawTextCentered(rgb, "BLAST OFF THE SPY BASES", 84, [180, 180, 200]);
-    this.drawTextCentered(rgb, `HIGH SCORE  ${this.highScore}`, 112, [240, 210, 90]);
-    if ((this.tick >> 4) & 1) this.drawTextCentered(rgb, "PRESS FIRE TO START", 150, [255, 255, 255]);
-    this.drawTextCentered(rgb, "ROUTE C REIMPLEMENTATION", 196, [90, 110, 140]);
+    // compact overlay so the live attract demo remains visible in the middle
+    this.drawTextCentered(rgb, "BOSCONIAN", 8, [90, 200, 255], 2);
+    this.drawTextCentered(rgb, `HIGH SCORE  ${this.highScore}`, 30, [240, 210, 90]);
+    if ((this.tick >> 4) & 1) this.drawTextCentered(rgb, "PRESS FIRE TO START", 204, [255, 255, 255]);
   }
 
   /** Bosconian's right-side radar: a top-down scope centred on the ship,

@@ -237,6 +237,16 @@ describe("GameScene", () => {
     expect(g.sfx).toContain("blastOff");
   });
 
+  it("plays a live, immortal demo on the title screen", () => {
+    const g = new GameScene(assets); // starts on the title/attract screen
+    expect(g.state).toBe("title");
+    // a fatal hazard must not cost the demo a life or end it
+    g.mines.push(new Mine(g.player.x + 8, g.player.y + 8));
+    for (let i = 0; i < 200; i++) g.update(noControls());
+    expect(g.state).toBe("title");
+    expect(g.lives).toBe(3);
+  });
+
   it("records the high score at game over", () => {
     const g = new GameScene(assets);
     const c = noControls();
