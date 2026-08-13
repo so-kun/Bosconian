@@ -106,6 +106,24 @@ describe("GameScene", () => {
     expect(g.headingIndex).toBe(5); // down-left
   });
 
+  it("gives the ship momentum: accelerates, then coasts to a stop", () => {
+    const g = startPlaying();
+    const c = noControls();
+    c.right = true;
+    g.update(c);
+    const vAfter1 = g.player.vx;
+    for (let i = 0; i < 20; i++) g.update(c);
+    // accelerated toward the cap but not instant
+    expect(vAfter1).toBeGreaterThan(0);
+    expect(g.player.vx).toBeGreaterThan(vAfter1);
+    expect(g.player.vx).toBeLessThan(2);
+    // release: still drifting this frame, then eventually settles to 0
+    g.update(noControls());
+    expect(g.player.vx).toBeGreaterThan(0);
+    for (let i = 0; i < 60; i++) g.update(noControls());
+    expect(g.player.vx).toBe(0);
+  });
+
   it("keeps the last heading when input is released", () => {
     const g = startPlaying();
     const c = noControls();

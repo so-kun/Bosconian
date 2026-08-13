@@ -64,8 +64,9 @@ export class GameScene {
   starfield = new Starfield();
   // player position is in WORLD coordinates (top-left of the 16x16 ship); the
   // ship is drawn pinned to the centre of the play window and the world scrolls
-  // under it. Starts at the centre of the wrapping world.
-  player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8 };
+  // under it. Starts at the centre of the wrapping world. vx/vy give the ship
+  // momentum (it accelerates up to speed and coasts to a stop).
+  player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8, vx: 0, vy: 0 };
   headingIndex = 0; // 0 = up
   bullets: Bullet[] = [];
   private firePrev = false;
@@ -143,7 +144,7 @@ export class GameScene {
 
   /** Start (or restart) a fresh game from the title / game-over screen. */
   resetGame(): void {
-    this.player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8 };
+    this.player = { x: WORLD_W / 2 - 8, y: WORLD_H / 2 - 8, vx: 0, vy: 0 };
     this.headingIndex = 0;
     this.bullets = [];
     this.fireCooldown = 0;
@@ -258,7 +259,8 @@ export class GameScene {
       return;
     }
 
-    const speed = 1.4;
+    const MAX_SPEED = 1.9;
+    const RESPONSE = 0.14; // how quickly velocity chases the target (inertia feel)
     const x = (c.right ? 1 : 0) - (c.left ? 1 : 0);
     const y = (c.down ? 1 : 0) - (c.up ? 1 : 0);
     this.headingIndex = this.inputToHeading(c);
@@ -266,13 +268,21 @@ export class GameScene {
     // alert condition decays / advances its banner each frame
     this.alert.update();
 
-    // move ship through the wrapping world (the view scrolls under it)
-    this.player.x = wrap(this.player.x + x * speed, WORLD_W);
-    this.player.y = wrap(this.player.y + y * speed, WORLD_H);
+    // momentum: ease the velocity toward the input target, then coast/wrap
+    const len = Math.hypot(x, y) || 1;
+    const tx = (x / len) * MAX_SPEED * (x || y ? 1 : 0);
+    const ty = (y / len) * MAX_SPEED * (x || y ? 1 : 0);
+    this.player.vx += (tx - this.player.vx) * RESPONSE;
+    this.player.vy += (ty - this.player.vy) * RESPONSE;
+    // snap tiny residual velocity to zero so the ship fully settles
+    if (Math.abs(this.player.vx) < 0.02) this.player.vx = 0;
+    if (Math.abs(this.player.vy) < 0.02) this.player.vy = 0;
+    this.player.x = wrap(this.player.x + this.player.vx, WORLD_W);
+    this.player.y = wrap(this.player.y + this.player.vy, WORLD_H);
 
-    // scroll the starfield opposite to travel for the flying illusion
-    const sx = x > 0 ? 3 : x < 0 ? 4 : 0;
-    const sy = y > 0 ? 3 : y < 0 ? 4 : 0;
+    // scroll the starfield with the ship's actual motion (the flying illusion)
+    const sx = this.player.vx > 0.05 ? 3 : this.player.vx < -0.05 ? 4 : 0;
+    const sy = this.player.vy > 0.05 ? 3 : this.player.vy < -0.05 ? 4 : 0;
     this.starfield.setScrollSpeed(sx, sy);
 
     // fire
